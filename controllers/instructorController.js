@@ -99,7 +99,7 @@ const instructorController = {
         try {
             const db = req.app.locals.db;
             const instructorId = req.user.id;
-            let { title, date, expiry_date, duration, questions, total_marks, type, subject_id } = req.body;
+            let { title, date, expiry_date, duration, questions, total_marks, type, subject_id, attempts_allowed } = req.body;
 
             // Robustness: Handle invalid subject_id
             if (!subject_id || isNaN(parseInt(subject_id))) {
@@ -110,9 +110,9 @@ const instructorController = {
             }
 
             const [result] = await db.query(
-                `INSERT INTO exams (title, instructor_id, subject_id, date, expiry_date, duration, questions, total_marks, type) 
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [title, instructorId, subject_id, date, expiry_date, duration, JSON.stringify(questions), total_marks, type]
+                `INSERT INTO exams (title, instructor_id, subject_id, date, expiry_date, duration, questions, total_marks, type, attempts_allowed) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [title, instructorId, subject_id, date, expiry_date, duration, JSON.stringify(questions), total_marks, type, attempts_allowed || 1]
             );
 
             res.json({ message: 'Exam created successfully', examId: result.insertId });
@@ -201,13 +201,13 @@ const instructorController = {
             const db = req.app.locals.db;
             const instructorId = req.user.id;
             const { id } = req.params;
-            const { title, date, expiry_date, duration, questions, total_marks, type, subject_id, allow_upload } = req.body;
+            const { title, date, expiry_date, duration, questions, total_marks, type, subject_id, allow_upload, attempts_allowed } = req.body;
 
             await db.query(
                 `UPDATE exams SET title = ?, date = ?, expiry_date = ?, duration = ?, questions = ?, 
-                 total_marks = ?, type = ?, subject_id = ?, allow_upload = ? 
+                 total_marks = ?, type = ?, subject_id = ?, allow_upload = ?, attempts_allowed = ? 
                  WHERE id = ? AND instructor_id = ?`,
-                [title, date, expiry_date, duration, JSON.stringify(questions), total_marks, type, subject_id, allow_upload, id, instructorId]
+                [title, date, expiry_date, duration, JSON.stringify(questions), total_marks, type, subject_id, allow_upload, attempts_allowed || 1, id, instructorId]
             );
 
             res.json({ message: 'Exam updated successfully' });

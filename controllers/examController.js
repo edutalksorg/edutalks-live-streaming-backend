@@ -30,7 +30,8 @@ exports.getStudentExams = async (req, res) => {
         // Since there is one instructor per batch and one batch per student (usually),
         // we join through student_batches -> batches to find the exams.
         const [exams] = await db.query(`
-            SELECT DISTINCT e.*, s.name as subject_name, es.id as submission_id, es.status as submission_status, es.score as achieved_score
+            SELECT DISTINCT e.*, s.name as subject_name, es.id as submission_id, es.status as submission_status, es.score as achieved_score,
+            (SELECT COUNT(*) FROM exam_submissions WHERE exam_id = e.id AND student_id = ?) as attempt_count
             FROM exams e
             JOIN batches b ON e.instructor_id = b.instructor_id AND e.subject_id = b.subject_id
             JOIN student_batches sb ON b.id = sb.batch_id
@@ -38,7 +39,7 @@ exports.getStudentExams = async (req, res) => {
             LEFT JOIN exam_submissions es ON e.id = es.exam_id AND es.student_id = ?
             WHERE sb.student_id = ?
             ORDER BY e.date DESC
-        `, [studentId, studentId]);
+        `, [studentId, studentId, studentId]);
 
         res.json(exams);
     } catch (err) {
@@ -68,11 +69,22 @@ exports.submitExam = async (req, res) => {
     try {
         const db = req.app.locals.db;
 
-        // 1. Fetch Exam Questions to calculate score
-        const [exams] = await db.query('SELECT questions, total_marks FROM exams WHERE id = ?', [exam_id]);
+        // 1. Fetch Exam details
+        const [exams] = await db.query('SELECT questions, total_marks, attempts_allowed, expiry_date FROM exams WHERE id = ?', [exam_id]);
         if (exams.length === 0) return res.status(404).json({ message: 'Exam not found' });
 
         const exam = exams[0];
+
+        // 2. Check Expiry
+        if (exam.expiry_date && new Date() > new Date(exam.expiry_date)) {
+            return res.status(403).json({ message: 'This exam has expired' });
+        }
+
+        // 3. Check Attempt Limit
+        const [submissions] = await db.query('SELECT COUNT(*) as count FROM exam_submissions WHERE exam_id = ? AND student_id = ?', [exam_id, student_id]);
+        if (submissions[0].count >= (exam.attempts_allowed || 1)) {
+            return res.status(403).json({ message: 'You have reached the maximum number of attempts allowed for this exam' });
+        }
         const questions = typeof exam.questions === 'string' ? JSON.parse(exam.questions) : exam.questions;
         const studentAnswers = typeof submission_data === 'string' ? JSON.parse(submission_data) : submission_data;
 

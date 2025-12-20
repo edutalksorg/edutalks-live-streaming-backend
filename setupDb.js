@@ -78,6 +78,7 @@ async function setup() {
                 type VARCHAR(50) DEFAULT 'exam',
                 prize VARCHAR(255) DEFAULT NULL,
                 allow_upload BOOLEAN DEFAULT FALSE,
+                attempts_allowed INT DEFAULT 1,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (instructor_id) REFERENCES users(id)
             )`,
@@ -196,6 +197,7 @@ async function setup() {
             "ALTER TABLE exam_submissions ADD COLUMN score INT DEFAULT NULL",
             "ALTER TABLE exam_submissions ADD COLUMN status ENUM('pending', 'graded') DEFAULT 'pending'",
             "ALTER TABLE exam_submissions MODIFY COLUMN file_path VARCHAR(255) NULL",
+            "ALTER TABLE exams ADD COLUMN attempts_allowed INT DEFAULT 1",
         ];
 
         for (const sql of migrations) {
