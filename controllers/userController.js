@@ -2,11 +2,19 @@ const bcrypt = require('bcryptjs');
 
 exports.getAllUsers = async (req, res) => {
     try {
-        const [users] = await req.app.locals.db.query(`
-            SELECT u.id, u.name, u.email, u.role_id, r.name as role_name, u.is_active, u.created_at 
+        let sql = `
+            SELECT u.id, u.name, u.email, u.role_id, r.name as role_name, u.is_active, u.created_at, u.phone, u.grade 
             FROM users u 
             JOIN roles r ON u.role_id = r.id
-        `);
+        `;
+        const params = [];
+
+        // Filter for regular 'admin': can only see instructors and students
+        if (req.user && req.user.role === 'admin') {
+            sql += ` WHERE r.name IN ('super_instructor', 'instructor', 'student')`;
+        }
+
+        const [users] = await req.app.locals.db.query(sql, params);
         res.json(users);
     } catch (err) {
         console.error(err);
@@ -15,7 +23,7 @@ exports.getAllUsers = async (req, res) => {
 };
 
 exports.createUser = async (req, res) => {
-    const { name, email, password, role } = req.body;
+    const { name, email, password, role, grade, phone } = req.body;
     // role: 'admin', 'super_instructor', 'instructor'
 
     try {
@@ -35,8 +43,8 @@ exports.createUser = async (req, res) => {
         const hashedPassword = await bcrypt.hash(password, 10);
 
         await req.app.locals.db.query(
-            'INSERT INTO users (name, email, password, role_id) VALUES (?, ?, ?, ?)',
-            [name, email, hashedPassword, roleId]
+            'INSERT INTO users (name, email, password, role_id, grade, phone) VALUES (?, ?, ?, ?, ?, ?)',
+            [name, email, hashedPassword, roleId, grade || null, phone || null]
         );
 
         res.status(201).json({ message: 'User created successfully' });
@@ -46,7 +54,7 @@ exports.createUser = async (req, res) => {
     }
 };
 
-const emailService = require('../services/emailService');
+// const emailService = require('../services/emailService'); // Not modifying this line as I can't see the context above clearly in this block, but I'll leave the requirement to remove usage.
 
 exports.toggleUserStatus = async (req, res) => {
     const { id } = req.params;
@@ -58,16 +66,30 @@ exports.toggleUserStatus = async (req, res) => {
             [is_active, id]
         );
 
-        // Send Email if activated
+        // Automatic assignment for Super Instructors when activated
         if (is_active) {
             try {
-                // Fetch User Email
-                const [users] = await req.app.locals.db.query('SELECT email, name FROM users WHERE id = ?', [id]);
+                const [users] = await req.app.locals.db.query(
+                    'SELECT u.id, u.name, u.grade, r.name as role_name FROM users u JOIN roles r ON u.role_id = r.id WHERE u.id = ?',
+                    [id]
+                );
+
                 if (users.length > 0) {
-                    await emailService.sendApprovalEmail(users[0].email, users[0].name);
+                    const user = users[0];
+                    if (user.role_name === 'super_instructor' && user.grade) {
+                        const [classes] = await req.app.locals.db.query('SELECT id FROM classes WHERE name = ?', [user.grade]);
+                        if (classes.length > 0) {
+                            const classId = classes[0].id;
+                            await req.app.locals.db.query(
+                                'INSERT INTO class_super_instructors (class_id, super_instructor_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE super_instructor_id = VALUES(super_instructor_id)',
+                                [classId, user.id]
+                            );
+                            console.log(`Auto-assigned Super Instructor ${user.name} to class ${user.grade} (ID: ${classId}) during status toggle.`);
+                        }
+                    }
                 }
-            } catch (emailErr) {
-                console.error("Failed to send approval email:", emailErr);
+            } catch (assignErr) {
+                console.error("Failed to auto-assign Super Instructor during status toggle:", assignErr);
             }
         }
 

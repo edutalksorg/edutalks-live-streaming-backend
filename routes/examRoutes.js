@@ -17,6 +17,7 @@ const upload = multer({ storage });
 
 router.post('/', verifyToken, authorizeRoles('super_instructor', 'instructor', 'super_admin'), examController.createExam);
 router.get('/', verifyToken, examController.getExams);
+router.get('/student', verifyToken, authorizeRoles('student'), examController.getStudentExams);
 router.get('/:id', verifyToken, examController.getExamById);
 
 router.post('/submit', verifyToken, upload.single('file'), examController.submitExam);

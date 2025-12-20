@@ -29,14 +29,16 @@ const dbDetails = {
     database: process.env.DB_NAME
 };
 
-// Check DB connection on startup
+// Auto-setup database and tables on startup
+const { setup } = require('./setupDb');
+
 (async () => {
     try {
-        const connection = await mysql.createConnection(dbDetails);
-        await connection.end();
-        console.log('Connected to MySQL Database');
+        await setup();
+        console.log('✓ Database and tables ready');
     } catch (err) {
-        console.error('Database connection failed:', err);
+        console.error('Database setup failed:', err);
+        process.exit(1);
     }
 })();
 
@@ -65,6 +67,17 @@ app.use('/api/exams', examRoutes);
 app.use('/api/tournaments', tournamentRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/batches', batchRoutes);
+const superAdminRoutes = require('./routes/superAdminRoutes');
+const adminRoutes = require('./routes/adminRoutes');
+const superInstructorRoutes = require('./routes/superInstructorRoutes');
+const instructorRoutes = require('./routes/instructorRoutes');
+const studentRoutes = require('./routes/studentRoutes');
+
+app.use('/api/super-admin', superAdminRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/super-instructor', superInstructorRoutes);
+app.use('/api/instructor', instructorRoutes);
+app.use('/api/student', studentRoutes);
 
 // Routes (Placeholders for now)
 app.get('/', (req, res) => {

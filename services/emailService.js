@@ -37,6 +37,20 @@ exports.sendRegistrationEmail = async (userEmail, name, role = 'Instructor') => 
         <p>Best Regards,<br/>EduTalks Team</p>
     `;
     await sendEmail(userEmail, subject, html);
+    await sendEmail(userEmail, subject, html);
+};
+
+exports.sendStudentWelcomeEmail = async (userEmail, name) => {
+    const subject = `Welcome to EduTalks!`;
+    const html = `
+        <h3>Welcome to EduTalks, ${name}!</h3>
+        <p>Thank you for registering as a <b>Student</b>.</p>
+        <p>Your account is <b>Active</b> and you can start learning immediately.</p>
+        <p><a href="http://localhost:5173/login">Login Here</a></p>
+        <br/>
+        <p>Best Regards,<br/>EduTalks Team</p>
+    `;
+    await sendEmail(userEmail, subject, html);
 };
 
 exports.sendAdminNotification = async (newUserName, newUserEmail, role = 'Instructor') => {
@@ -63,6 +77,20 @@ exports.sendApprovalEmail = async (userEmail, name, role = 'Instructor') => {
         <p>Your <b>${displayRole}</b> account has been <b>APPROVED</b>.</p>
         <p>You can now login to the platform and start managing your classes.</p>
         <p><a href="http://localhost:5173/login">Login Here</a></p>
+        <br/>
+        <p>Best Regards,<br/>EduTalks Team</p>
+    `;
+    await sendEmail(userEmail, subject, html);
+};
+
+exports.sendLiveClassNotification = async (userEmail, name, subjectName, startTime) => {
+    const subject = `Live Class Starting Soon: ${subjectName}`;
+    const html = `
+        <h3>Hello ${name},</h3>
+        <p>This is a reminder that your live class for <b>${subjectName}</b> is starting soon.</p>
+        <p><b>Start Time:</b> ${new Date(startTime).toLocaleString()}</p>
+        <p>Please login to your dashboard to join the session.</p>
+        <p><a href="http://localhost:5173/login">Join Now</a></p>
         <br/>
         <p>Best Regards,<br/>EduTalks Team</p>
     `;

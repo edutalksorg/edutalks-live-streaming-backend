@@ -29,7 +29,7 @@ class BatchAllocationService {
     }
 
     async assignToBatch(studentId, subjectId) {
-        // Find an active batch with < 30 students
+        // 1. Check for an existing active batch with < 30 students
         const [batches] = await this.pool.query(
             'SELECT * FROM batches WHERE subject_id = ? AND is_active = TRUE AND student_count < 30 ORDER BY created_at ASC LIMIT 1',
             [subjectId]
@@ -38,24 +38,53 @@ class BatchAllocationService {
         let batchId;
 
         if (batches.length > 0) {
-            // Use existing batch
+            // Join existing batch
             batchId = batches[0].id;
-            // Update count
             await this.pool.query('UPDATE batches SET student_count = student_count + 1 WHERE id = ?', [batchId]);
         } else {
-            // Create NEW Batch
-            // Logic: Assign to a new Instructor? 
-            // For now, we will assign to a default 'Pending Instructor' or pick round-robin if we had a pool.
-            // Simplified: Pick the first available instructor for that subject or a default dummy one if none involved.
-            // In a real scenario, Super Instructor would manually assign the instructor to the new batch, 
-            // OR we pick from a pool of instructors tagged with this subject.
+            // 2. Need new batch: Find next eligible instructor
+            // Fetch instructors eligible for this subject from instructor_subjects
+            const [eligibleInstructors] = await this.pool.query(
+                `SELECT u.id FROM users u
+                 JOIN instructor_subjects isub ON u.id = isub.instructor_id
+                 WHERE isub.subject_id = ? AND u.is_active = 1`,
+                [subjectId]
+            );
 
-            // Let's check if there are instructors available. 
-            // For MVP, we'll try to reuse an instructor or assign to a default placeholder.
-            // Let's assume we pick a 'Super Instructor' as fallback or just the first instructor found.
+            let instructorId;
 
-            const [instructors] = await this.pool.query('SELECT id FROM users WHERE role_id = (SELECT id FROM roles WHERE name = "instructor") LIMIT 1');
-            const instructorId = instructors.length > 0 ? instructors[0].id : 1; // Fallback to ID 1 (admin) if no instructor
+            if (eligibleInstructors.length > 0) {
+                // Round-Robin or Load Balancing Logic
+                // Find instructor with the fewest ACTIVE batches or students for this subject
+                // Simplified: Just pick one that isn't full (which we know current ones are full or don't exist)
+                // We'll iterate or pick one. For better distribution, let's query batch counts.
+                // But for now, picking the first eligible one is fine if we assume sequential filling.
+                // To support "Next 30 members there will be other instructor", we need to see who has the *active* batch.
+                // If the previous active batch was full, we should pick a *different* instructor if possible.
+
+                // Let's Find the IDs of instructors who have recently filled batches
+                // and try to pick a different one.
+                const [recentBatches] = await this.pool.query(
+                    'SELECT instructor_id FROM batches WHERE subject_id = ? ORDER BY created_at DESC LIMIT 5',
+                    [subjectId]
+                );
+
+                // Exclude recently assigned if multiple exist
+                const recentInstructorIds = recentBatches.map(b => b.instructor_id);
+                const candidates = eligibleInstructors.filter(i => !recentInstructorIds.includes(i.id));
+
+                if (candidates.length > 0) {
+                    instructorId = candidates[0].id;
+                } else {
+                    // Recycle instructors if all have had a turn
+                    instructorId = eligibleInstructors[0].id;
+                }
+
+            } else {
+                // Fallback: No specific instructor assigned to subject. Pick any instructor or admin.
+                const [instructors] = await this.pool.query('SELECT id FROM users WHERE role_id = (SELECT id FROM roles WHERE name = "instructor") LIMIT 1');
+                instructorId = instructors.length > 0 ? instructors[0].id : 1;
+            }
 
             // Create new batch
             const [result] = await this.pool.query(

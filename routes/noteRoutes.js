@@ -23,6 +23,7 @@ if (!noteController.uploadNote || !noteController.getAllNotes) {
 
 router.post('/', verifyToken, authorizeRoles('super_instructor', 'instructor', 'super_admin'), upload.single('file'), noteController.uploadNote);
 router.get('/', verifyToken, noteController.getAllNotes);
+router.get('/student', verifyToken, authorizeRoles('student'), noteController.getStudentNotes);
 router.get('/instructor/:instructorId', verifyToken, noteController.getInstructorNotes);
 
 // If delete was intended, ensure it exists in controller first

@@ -23,7 +23,7 @@ exports.login = async (req, res) => {
 
         // Check Active Status
         if (!user.is_active) {
-            return res.status(403).json({ message: 'Account is pending approval. Please check your email.' });
+            return res.status(403).json({ message: 'Account is pending approval. Please wait for an Admin to approve your request.' });
         }
 
         const token = jwt.sign(
@@ -38,8 +38,25 @@ exports.login = async (req, res) => {
                 'SELECT c.id, c.name FROM class_super_instructors csi JOIN classes c ON csi.class_id = c.id WHERE csi.super_instructor_id = ?',
                 [user.id]
             );
+
             if (classRecord.length > 0) {
                 assignedClass = classRecord[0];
+            } else if (user.grade) {
+                // Fallback: Auto-assign if grade is set but link is missing
+                try {
+                    const [classes] = await req.app.locals.db.query('SELECT id, name FROM classes WHERE name = ?', [user.grade]);
+                    if (classes.length > 0) {
+                        const classId = classes[0].id;
+                        await req.app.locals.db.query(
+                            'INSERT INTO class_super_instructors (class_id, super_instructor_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE super_instructor_id = VALUES(super_instructor_id)',
+                            [classId, user.id]
+                        );
+                        console.log(`Auto-assigned Super Instructor ${user.name} to class ${user.grade} during login fallback.`);
+                        assignedClass = { id: classId, name: user.grade };
+                    }
+                } catch (assignErr) {
+                    console.error("Failed to auto-assign Super Instructor during login fallback:", assignErr);
+                }
             }
         }
 
@@ -108,17 +125,21 @@ exports.register = async (req, res) => {
                     console.error("Batch allocation failed:", batchErr);
                 }
             }
+            try {
+                await emailService.sendStudentWelcomeEmail(email, name);
+            } catch (emailErr) {
+                console.error("Student email sending failed:", emailErr);
+            }
             res.status(201).json({ message: 'Student registered successfully' });
         } else {
-            // Send Email Notifications
+            // REMOVED EMAIL SENDING (User requested no emails)
             try {
                 await emailService.sendRegistrationEmail(email, name, requestedRole);
-                await emailService.sendAdminNotification(name, email, requestedRole);
+                // Admin notification disabled as per request
             } catch (emailErr) {
                 console.error("Email sending failed:", emailErr);
             }
-
-            res.status(201).json({ message: 'Account request submitted. Waiting for Admin approval.' });
+            res.status(201).json({ message: 'Account request submitted. Please wait for Admin approval. You can check your status by logging in.' });
         }
 
     } catch (err) {
