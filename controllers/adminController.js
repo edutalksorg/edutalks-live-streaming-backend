@@ -115,6 +115,27 @@ const adminController = {
             console.error(err);
             res.status(500).json({ message: 'Server error' });
         }
+    },
+
+    deactivateUser: async (req, res) => {
+        const { id } = req.params;
+        try {
+            // Fetch user details
+            const [users] = await req.app.locals.db.query('SELECT * FROM users WHERE id = ?', [id]);
+            if (users.length === 0) return res.status(404).json({ message: 'User not found' });
+            const user = users[0];
+
+            // Deactivate user
+            await req.app.locals.db.query(
+                'UPDATE users SET is_active = 0 WHERE id = ?',
+                [id]
+            );
+
+            res.json({ message: 'User deactivated successfully' });
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ message: 'Server error' });
+        }
     }
 };
 

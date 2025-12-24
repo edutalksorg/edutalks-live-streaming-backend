@@ -13,5 +13,6 @@ router.get('/students', verifyToken, authorizeRoles('admin'), adminController.ge
 
 // Approval
 router.put('/approve/:id', verifyToken, authorizeRoles('admin'), adminController.approveUser);
+router.put('/deactivate/:id', verifyToken, authorizeRoles('admin'), adminController.deactivateUser);
 
 module.exports = router;

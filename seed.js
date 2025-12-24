@@ -17,16 +17,16 @@ async function seed() {
         // Check if super admin exists
         const [rows] = await connection.execute(
             'SELECT * FROM users WHERE email = ?',
-            ['mcsushma90@gmail.com']
+            ['superadmin@gmail.com']
         );
 
         if (rows.length === 0) {
             const hashedPassword = await bcrypt.hash('Superadmin123', 10);
             await connection.execute(
                 'INSERT INTO users (name, email, password, role_id) VALUES (?, ?, ?, (SELECT id FROM roles WHERE name = "super_admin"))',
-                ['Super Admin', 'mcsushma90@gmail.com', hashedPassword]
+                ['Super Admin', 'superadmin@gmail.com', hashedPassword]
             );
-            console.log('Super Admin user created: mcsushma90@gmail.com / Superadmin123');
+            console.log('Super Admin user created: superadmin@gmail.com / Superadmin123');
         } else {
             console.log('Super Admin already exists.');
         }

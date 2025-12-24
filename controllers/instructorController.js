@@ -133,11 +133,13 @@ const instructorController = {
             if (!exam.length) return res.status(403).json({ message: 'Unauthorized / Exam not found' });
 
             const [submissions] = await db.query(
-                `SELECT es.*, u.name as student_name, u.email as student_email, sr.review_text, sr.score, sr.reviewed_at
+                `SELECT es.*, u.name as student_name, u.email as student_email, sr.review_text, sr.score as reviewed_score, sr.reviewed_at,
+                       (SELECT COUNT(*) FROM exam_submissions es2 WHERE es2.exam_id = es.exam_id AND es2.student_id = es.student_id AND es2.submitted_at <= es.submitted_at) as attempt_number
                  FROM exam_submissions es
                  JOIN users u ON es.student_id = u.id
                  LEFT JOIN submission_reviews sr ON es.id = sr.submission_id
-                 WHERE es.exam_id = ?`,
+                 WHERE es.exam_id = ?
+                 ORDER BY es.submitted_at DESC`,
                 [examId]
             );
             res.json(submissions);

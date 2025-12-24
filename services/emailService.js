@@ -9,6 +9,8 @@ const transporter = nodemailer.createTransport({
     }
 });
 
+const loginUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/login`;
+
 const sendEmail = async (to, subject, html) => {
     try {
         await transporter.sendMail({
@@ -22,6 +24,8 @@ const sendEmail = async (to, subject, html) => {
         console.error('Error sending email:', error);
     }
 };
+
+exports.sendEmail = sendEmail;
 
 exports.sendRegistrationEmail = async (userEmail, name, role = 'Instructor') => {
     // Capitalize first letter
@@ -46,7 +50,7 @@ exports.sendStudentWelcomeEmail = async (userEmail, name) => {
         <h3>Welcome to EduTalks, ${name}!</h3>
         <p>Thank you for registering as a <b>Student</b>.</p>
         <p>Your account is <b>Active</b> and you can start learning immediately.</p>
-        <p><a href="http://localhost:5173/login">Login Here</a></p>
+        <p><a href="${loginUrl}">Login Here</a></p>
         <br/>
         <p>Best Regards,<br/>EduTalks Team</p>
     `;
@@ -76,7 +80,7 @@ exports.sendApprovalEmail = async (userEmail, name, role = 'Instructor') => {
         <h3>Congratulations, ${name}!</h3>
         <p>Your <b>${displayRole}</b> account has been <b>APPROVED</b>.</p>
         <p>You can now login to the platform and start managing your classes.</p>
-        <p><a href="http://localhost:5173/login">Login Here</a></p>
+        <p><a href="${loginUrl}">Login Here</a></p>
         <br/>
         <p>Best Regards,<br/>EduTalks Team</p>
     `;
@@ -87,10 +91,51 @@ exports.sendLiveClassNotification = async (userEmail, name, subjectName, startTi
     const subject = `Live Class Starting Soon: ${subjectName}`;
     const html = `
         <h3>Hello ${name},</h3>
-        <p>This is a reminder that your live class for <b>${subjectName}</b> is starting soon.</p>
+        <p>This is a reminder that your live class for <b>${subjectName}</b> is starting now.</p>
+        <p>Please login to your dashboard to join the session immediately.</p>
+        <p><a href="${loginUrl}">Join Now</a></p>
+        <br/>
+        <p>Best Regards,<br/>EduTalks Team</p>
+    `;
+    await sendEmail(userEmail, subject, html);
+};
+
+exports.sendClassScheduledEmail = async (userEmail, name, subjectName, startTime, instructorName) => {
+    const subject = `New Class Scheduled: ${subjectName}`;
+    const html = `
+        <h3>Hello ${name},</h3>
+        <p>A new live class has been scheduled for <b>${subjectName}</b> by ${instructorName}.</p>
         <p><b>Start Time:</b> ${new Date(startTime).toLocaleString()}</p>
-        <p>Please login to your dashboard to join the session.</p>
-        <p><a href="http://localhost:5173/login">Join Now</a></p>
+        <p>Make sure to be ready for the session!</p>
+        <br/>
+        <p>Best Regards,<br/>EduTalks Team</p>
+    `;
+    await sendEmail(userEmail, subject, html);
+};
+
+exports.sendClassStartedEmail = async (userEmail, name, subjectName, instructorName) => {
+    const subject = `CLASS STARTED: ${subjectName}`;
+    const html = `
+        <h3>Hello ${name},</h3>
+        <p>The live class for <b>${subjectName}</b> by ${instructorName} has just STARTED.</p>
+        <p>Jump in now to participate!</p>
+        <p><a href="${loginUrl}">Join Class Now</a></p>
+        <br/>
+        <p>Best Regards,<br/>EduTalks Team</p>
+    `;
+    await sendEmail(userEmail, subject, html);
+};
+
+exports.sendClassReminderEmail = async (userEmail, name, subjectName, startTime, role = 'student') => {
+    const formattedTime = new Date(startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const reminderTime = new Date(new Date(startTime).getTime() - 5 * 60 * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    const subject = `Reminder: ${subjectName} starts in 5 minutes!`;
+    const html = `
+        <h3>Hello ${name},</h3>
+        <p>This is a reminder that the session <b>${subjectName}</b> is scheduled for <b>${formattedTime}</b>.</p>
+        <p>Please <b>meet at ${reminderTime}</b> to prepare for the session.</p>
+        <p><a href="${loginUrl}">Login Now</a></p>
         <br/>
         <p>Best Regards,<br/>EduTalks Team</p>
     `;

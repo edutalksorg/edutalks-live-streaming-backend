@@ -30,16 +30,22 @@ exports.getStudentExams = async (req, res) => {
         // Since there is one instructor per batch and one batch per student (usually),
         // we join through student_batches -> batches to find the exams.
         const [exams] = await db.query(`
-            SELECT DISTINCT e.*, s.name as subject_name, es.id as submission_id, es.status as submission_status, es.score as achieved_score,
-            (SELECT COUNT(*) FROM exam_submissions WHERE exam_id = e.id AND student_id = ?) as attempt_count
+            SELECT 
+                e.*, 
+                s.name as subject_name,
+                MAX(es.score) as achieved_score,
+                (SELECT id FROM exam_submissions WHERE exam_id = e.id AND student_id = ? ORDER BY submitted_at DESC LIMIT 1) as submission_id,
+                (SELECT status FROM exam_submissions WHERE exam_id = e.id AND student_id = ? ORDER BY submitted_at DESC LIMIT 1) as submission_status,
+                (SELECT COUNT(*) FROM exam_submissions WHERE exam_id = e.id AND student_id = ?) as attempt_count
             FROM exams e
             JOIN batches b ON e.instructor_id = b.instructor_id AND e.subject_id = b.subject_id
             JOIN student_batches sb ON b.id = sb.batch_id
             LEFT JOIN subjects s ON e.subject_id = s.id
             LEFT JOIN exam_submissions es ON e.id = es.exam_id AND es.student_id = ?
             WHERE sb.student_id = ?
+            GROUP BY e.id
             ORDER BY e.date DESC
-        `, [studentId, studentId, studentId]);
+        `, [studentId, studentId, studentId, studentId, studentId]);
 
         res.json(exams);
     } catch (err) {
@@ -185,5 +191,33 @@ exports.getSubmissionResult = async (req, res) => {
     } catch (err) {
         console.error(err);
         res.status(500).json({ message: 'Server error' });
+    }
+};
+
+exports.uploadWorksheet = async (req, res) => {
+    const { id } = req.params; // Submission ID
+    const studentId = req.user.id;
+
+    if (!req.file) {
+        return res.status(400).json({ message: 'No file uploaded' });
+    }
+
+    const fileUrl = `/uploads/exams/${req.file.filename}`;
+
+    try {
+        const db = req.app.locals.db;
+
+        // Verify ownership
+        const [submissions] = await db.query('SELECT id FROM exam_submissions WHERE id = ? AND student_id = ?', [id, studentId]);
+        if (submissions.length === 0) {
+            return res.status(403).json({ message: 'Unauthorized / Submission not found' });
+        }
+
+        await db.query('UPDATE exam_submissions SET file_path = ? WHERE id = ?', [fileUrl, id]);
+
+        res.json({ message: 'Worksheet uploaded successfully', fileUrl });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'Server error uploading worksheet' });
     }
 };

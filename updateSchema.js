@@ -53,7 +53,7 @@ const schemaUpdates = `
         instructor_id INT NOT NULL,
         name VARCHAR(100),
         student_count INT DEFAULT 0,
-        max_students INT DEFAULT 30,
+        max_students INT DEFAULT 2,
         is_active BOOLEAN DEFAULT TRUE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (subject_id) REFERENCES subjects(id) ON DELETE CASCADE,

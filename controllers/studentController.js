@@ -43,14 +43,34 @@ const studentController = {
 
             // 4. Get Upcoming Classes (Strictly Batch-Specific)
             const [upcomingClasses] = await db.query(`
-                SELECT lc.*, s.name as subject_name, u.name as instructor_name
+                SELECT DISTINCT lc.*, s.name as subject_name, u.name as instructor_name
                 FROM live_classes lc
-                JOIN batches b ON lc.instructor_id = b.instructor_id AND lc.subject_id = b.subject_id
+                JOIN batches b ON lc.instructor_id = b.instructor_id 
+                    AND (lc.subject_id = b.subject_id OR lc.subject_id IS NULL)
                 JOIN student_batches sb ON b.id = sb.batch_id
-                JOIN subjects s ON lc.subject_id = s.id
+                LEFT JOIN subjects s ON lc.subject_id = s.id
                 JOIN users u ON lc.instructor_id = u.id
-                WHERE sb.student_id = ? AND lc.start_time >= NOW()
-                ORDER BY lc.start_time ASC
+                WHERE sb.student_id = ? AND (lc.start_time >= NOW() OR lc.status = "live")
+                ORDER BY lc.status = "live" DESC, lc.start_time ASC
+                LIMIT 5
+            `, [studentId]);
+
+            console.log(`[getDashboard] Student ID: ${studentId}, Upcoming Classes Found: ${upcomingClasses.length}`);
+            if (upcomingClasses.length > 0) {
+                console.log(`[getDashboard] First Class Details:`, JSON.stringify(upcomingClasses[0]));
+            }
+
+            // 5. Get Recent Test Results (Including Reviews)
+            const [recentResults] = await db.query(`
+                SELECT es.id as submission_id, es.score as auto_score, es.submitted_at, 
+                       es.file_path, e.title, e.total_marks, s.name as subject_name,
+                       sr.review_text, sr.score as reviewed_score
+                FROM exam_submissions es
+                JOIN exams e ON es.exam_id = e.id
+                JOIN subjects s ON e.subject_id = s.id
+                LEFT JOIN submission_reviews sr ON es.id = sr.submission_id
+                WHERE es.student_id = ?
+                ORDER BY es.submitted_at DESC
                 LIMIT 5
             `, [studentId]);
 
@@ -62,7 +82,11 @@ const studentController = {
                     studyMaterials: notesCount[0].count
                 },
                 batches,
-                upcomingClasses
+                upcomingClasses,
+                recentResults: recentResults.map(r => ({
+                    ...r,
+                    score: r.reviewed_score !== null ? r.reviewed_score : r.auto_score
+                }))
             });
 
         } catch (err) {
@@ -142,11 +166,16 @@ const studentController = {
                 return res.json([]); // No grade, no subjects
             }
 
-            // 2. Get Subjects (More robust)
+            // 2. Get Subjects (Including Assigned Instructor & Deactivation Handling)
             const [subjects] = await db.query(`
-                SELECT id, name FROM subjects 
-                WHERE grade = ? OR class_id = (SELECT id FROM classes WHERE name = ? OR name LIKE ?)
-            `, [grade, grade, `%${grade}%`]);
+                SELECT s.id, s.name, 
+                       CASE WHEN u.is_active = 0 THEN CONCAT(u.name, ' (Instructor removed)') ELSE u.name END as instructor_name
+                FROM subjects s
+                LEFT JOIN batches b ON s.id = b.subject_id
+                LEFT JOIN student_batches sb ON b.id = sb.batch_id AND sb.student_id = ?
+                LEFT JOIN users u ON b.instructor_id = u.id
+                WHERE s.grade = ? OR s.class_id = (SELECT id FROM classes WHERE name = ? OR name LIKE ?)
+            `, [studentId, grade, grade, `%${grade}%`]);
 
             console.log(`[getSubjectsFull] Found ${subjects.length} subjects`);
 
@@ -160,29 +189,55 @@ const studentController = {
                 WHERE sb.student_id = ?
             `, [studentId]);
 
-            // 4. Get Exams for Assigned Batches (Expiry-Aware)
+            // 4. Get Exams for Assigned Batches (Including Expired)
             const [exams] = await db.query(`
                 SELECT DISTINCT e.*, s.id as subject_id 
                 FROM exams e 
                 JOIN batches b ON e.instructor_id = b.instructor_id AND e.subject_id = b.subject_id
                 JOIN student_batches sb ON b.id = sb.batch_id
                 JOIN subjects s ON e.subject_id = s.id
-                WHERE sb.student_id = ? AND (e.expiry_date IS NULL OR e.expiry_date >= NOW())
+                WHERE sb.student_id = ?
             `, [studentId]);
 
-            // 5. Get Submissions
-            const [submissions] = await db.query('SELECT * FROM exam_submissions WHERE student_id = ?', [studentId]);
+            // 5. Get Submissions (Including Reviews & Attempt Counts)
+            const [submissions] = await db.query(`
+                SELECT es.*, sr.review_text, sr.score as reviewed_score
+                FROM exam_submissions es
+                LEFT JOIN submission_reviews sr ON es.id = sr.submission_id
+                WHERE es.student_id = ?
+                ORDER BY es.submitted_at DESC
+            `, [studentId]);
 
             // 6. Assemble
             const data = subjects.map(s => ({
                 ...s,
                 notes: notes.filter(n => n.subject_id === s.id),
                 exams: exams.filter(e => e.subject_id === s.id).map(e => {
-                    const sub = submissions.find(su => su.exam_id === e.id);
+                    const studentSubmissions = submissions.filter(su => su.exam_id === e.id);
+                    const bestSubmission = studentSubmissions.find(su => su.status === 'graded') || studentSubmissions[0];
+                    const isExpired = e.expiry_date && new Date(e.expiry_date) < new Date();
+
+                    let status = 'Attempt Now';
+                    if (studentSubmissions.length > 0) {
+                        status = bestSubmission.status === 'graded' ? 'Completed' : 'Pending';
+                    } else if (isExpired) {
+                        status = 'Expired';
+                    }
+
                     return {
                         ...e,
-                        status: sub ? (sub.status === 'graded' ? 'Completed' : 'Pending') : 'Attempt Now',
-                        score: sub ? sub.score : null
+                        status,
+                        score: bestSubmission ? (bestSubmission.reviewed_score !== null ? bestSubmission.reviewed_score : bestSubmission.score) : null,
+                        review_text: bestSubmission ? bestSubmission.review_text : null,
+                        attempts_done: studentSubmissions.length,
+                        is_expired: isExpired,
+                        all_attempts: studentSubmissions.map(sub => ({
+                            id: sub.id,
+                            score: sub.reviewed_score !== null ? sub.reviewed_score : sub.score,
+                            submitted_at: sub.submitted_at,
+                            review_text: sub.review_text,
+                            file_path: sub.file_path
+                        }))
                     };
                 })
             }));

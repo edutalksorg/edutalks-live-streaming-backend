@@ -16,9 +16,9 @@ const superInstructorController = {
             const className = classes[0].name;
 
             // 3. Stats
-            // Total Students in this Grade
+            // Total Students in this Grade (only active students, no duplicates)
             const [students] = await db.query(
-                'SELECT COUNT(*) as count FROM users u JOIN roles r ON u.role_id = r.id WHERE r.name = "student" AND u.grade = ?',
+                'SELECT COUNT(DISTINCT u.id) as count FROM users u JOIN roles r ON u.role_id = r.id WHERE r.name = "student" AND u.grade = ? AND u.is_active = 1',
                 [className]
             );
 
@@ -46,6 +46,14 @@ const superInstructorController = {
                     ORDER BY b.id ASC
                 `, [sub.id]);
 
+                // Get Qualified Instructors for this subject (who might not have batches yet)
+                const [qualifiedInstrs] = await db.query(`
+                    SELECT u.id, u.name, u.email
+                    FROM users u
+                    JOIN instructor_subjects isub ON u.id = isub.instructor_id
+                    WHERE isub.subject_id = ?
+                `, [sub.id]);
+
                 // Calculate Total Assigned for this subject
                 const totalAssigned = batches.reduce((sum, b) => sum + (b.student_count || 0), 0);
 
@@ -56,6 +64,7 @@ const superInstructorController = {
                 detailedSubjects.push({
                     ...sub,
                     batches: batches,
+                    qualifiedInstructors: qualifiedInstrs,
                     totalAssigned,
                     unassignedCount
                 });
@@ -178,41 +187,82 @@ const superInstructorController = {
                 return res.status(403).json({ message: "Instructor does not belong to your assigned grade." });
             }
 
-            // 1. Strict Global Check: Is instructor already teaching ANY subject (in any batch)?
-            // We check the 'batches' table now, as that's the source of truth for assignments.
-            const [existing] = await db.query(
-                'SELECT * FROM batches WHERE instructor_id = ?',
+            // 3. Check if instructor is already qualified for ANY subject
+            const [existingQualification] = await db.query(
+                'SELECT * FROM instructor_subjects WHERE instructor_id = ?',
                 [instructorId]
             );
 
-            if (existing.length > 0) {
-                return res.status(400).json({ message: 'Instructor is already assigned to a subject/batch. One subject per instructor only.' });
+            if (existingQualification.length > 0) {
+                return res.status(400).json({ message: 'Instructor is already qualified for another subject. One subject per instructor only.' });
             }
 
-            // 2. Create the Batch Assignment (Qualifier)
-            // This ensures BatchAllocationService knows who can teach this subject
+            // 2. Create the Batch Assignment (Qualification)
             await db.query(
                 'INSERT IGNORE INTO instructor_subjects (instructor_id, subject_id, assigned_by) VALUES (?, ?, ?)',
                 [instructorId, subjectId, superInstructorId]
             );
 
-            // 3. Create the first Batch
-            // Get Subject Name for batch naming
-            const [subs] = await db.query('SELECT name FROM subjects WHERE id = ?', [subjectId]);
-            const subjectName = subs[0]?.name || 'Unknown';
+            // 3. Automatically Create the first Batch
+            // Get subject name for batch naming
+            const [subjects] = await db.query('SELECT name FROM subjects WHERE id = ?', [subjectId]);
+            const subjectName = subjects[0].name;
 
-            // Get Instructor Name
-            const [insts] = await db.query('SELECT name FROM users WHERE id = ?', [instructorId]);
-            const instName = insts[0]?.name || 'Instructor';
-
-            const batchName = `${subjectName} - ${instName}`;
+            // Generate a default batch name
+            const batchName = `${subjectName} - Batch 1`;
 
             await db.query(
-                'INSERT INTO batches (name, subject_id, instructor_id) VALUES (?, ?, ?)',
-                [batchName, subjectId, instructorId]
+                'INSERT INTO batches (subject_id, instructor_id, name, max_students) VALUES (?, ?, ?, ?)',
+                [subjectId, instructorId, batchName, 2]
             );
 
-            res.json({ message: 'Instructor assigned, qualification recorded, and new batch created successfully' });
+            res.json({ message: 'Instructor assigned and batch created successfully! You can now distribute students.' });
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ message: 'Server error' });
+        }
+    },
+
+    createBatch: async (req, res) => {
+        const { subjectId, instructorId, batchName, maxStudents } = req.body;
+        const superInstructorId = req.user.id;
+        const db = req.app.locals.db;
+
+        try {
+            // 0. Security: Verify SI's Class/Grade
+            const [siClass] = await db.query('SELECT class_id FROM class_super_instructors WHERE super_instructor_id = ?', [superInstructorId]);
+            if (siClass.length === 0) return res.status(403).json({ message: "No class assigned to you." });
+            const siClassId = siClass[0].class_id;
+
+            // 1. Validate Subject ownership
+            const [subCheck] = await db.query('SELECT class_id FROM subjects WHERE id = ?', [subjectId]);
+            if (!subCheck.length || subCheck[0].class_id !== siClassId) {
+                return res.status(403).json({ message: "This subject does not belong to your assigned grade." });
+            }
+
+            // 2. Validate that instructor is qualified for this subject
+            const [qualification] = await db.query(
+                'SELECT * FROM instructor_subjects WHERE instructor_id = ? AND subject_id = ?',
+                [instructorId, subjectId]
+            );
+
+            if (qualification.length === 0) {
+                return res.status(400).json({ message: 'Instructor is not qualified for this subject. Please assign them to the subject first.' });
+            }
+
+            // 3. Validate batch name is provided
+            if (!batchName || batchName.trim() === '') {
+                return res.status(400).json({ message: 'Batch name is required.' });
+            }
+
+            // 4. Create the batch
+            const capacity = maxStudents || 2; // Default to 2 students per batch
+            await db.query(
+                'INSERT INTO batches (name, subject_id, instructor_id, max_students) VALUES (?, ?, ?, ?)',
+                [batchName.trim(), subjectId, instructorId, capacity]
+            );
+
+            res.json({ message: 'Batch created successfully!' });
         } catch (err) {
             console.error(err);
             res.status(500).json({ message: 'Server error' });
@@ -395,27 +445,122 @@ const superInstructorController = {
         const userId = req.user.id;
 
         try {
-            // 0. Security: Get SI's Class ID
+            // 0. Security: Get SI's Class ID and Name
             const [siClass] = await db.query('SELECT class_id FROM class_super_instructors WHERE super_instructor_id = ?', [userId]);
             if (siClass.length === 0) return res.status(403).json({ message: "No class assigned." });
             const siClassId = siClass[0].class_id;
 
-            // 1. Get List of Batches for this class needed to be deleted? 
-            // OR simply delete batches where subject belongs to this class.
+            const [cls] = await db.query('SELECT name FROM classes WHERE id = ?', [siClassId]);
+            const gradeName = cls[0].name;
 
-            // Delete batches linked to subjects of this class
-            // Using a JOIN delete
+            // 1. Delete student assignments for all batches of subjects in this class
+            await db.query(`
+                DELETE sb FROM student_batches sb
+                JOIN batches b ON sb.batch_id = b.id
+                JOIN subjects s ON b.subject_id = s.id
+                WHERE s.class_id = ?
+            `, [siClassId]);
+
+            // 2. Delete batches linked to subjects of this class
             await db.query(`
                 DELETE b FROM batches b
                 JOIN subjects s ON b.subject_id = s.id
                 WHERE s.class_id = ?
             `, [siClassId]);
 
-            res.json({ message: "All allocations have been reset. You can now start fresh." });
+            // 3. Delete ALL instructor qualifications for subjects of this class
+            // Using a more direct join to ensure we clear everything related to this grade's subjects
+            await db.query(`
+                DELETE isub FROM instructor_subjects isub
+                JOIN subjects s ON isub.subject_id = s.id
+                WHERE s.class_id = ?
+            `, [siClassId]);
+
+            // 4. Also clear qualifications for any instructor belonging to this grade 
+            // to ensure no "already qualified" errors remain
+            await db.query(`
+                DELETE isub FROM instructor_subjects isub
+                JOIN users u ON isub.instructor_id = u.id
+                WHERE u.grade = ?
+            `, [gradeName]);
+
+            res.json({ message: "System reset complete. All batches and qualifications for your grade have been cleared." });
 
         } catch (err) {
             console.error(err);
             res.status(500).json({ message: 'Server error resetting assignments' });
+        }
+    },
+    cleanupStrayBatches: async (req, res) => {
+        const db = req.app.locals.db;
+        const userId = req.user.id;
+
+        try {
+            // 0. Security: Get SI's Class ID
+            const [siClass] = await db.query('SELECT class_id FROM class_super_instructors WHERE super_instructor_id = ?', [userId]);
+            if (siClass.length === 0) return res.status(403).json({ message: "No class assigned." });
+            const siClassId = siClass[0].class_id;
+
+            // 1. Identify Stray Batches for this grade's subjects
+            // A batch is stray if the instructor_id/subject_id pair IS NOT in instructor_subjects
+            const [strays] = await db.query(`
+                SELECT b.id 
+                FROM batches b
+                JOIN subjects s ON b.subject_id = s.id
+                LEFT JOIN instructor_subjects isub ON b.instructor_id = isub.instructor_id AND b.subject_id = isub.subject_id
+                WHERE s.class_id = ? AND isub.id IS NULL
+            `, [siClassId]);
+
+            if (strays.length === 0) {
+                return res.json({ message: "No stray batches found. System is clean!" });
+            }
+
+            const strayIds = strays.map(s => s.id);
+
+            // 2. Delete assignments and batches sequentially
+            await db.query('DELETE FROM student_batches WHERE batch_id IN (?)', [strayIds]);
+            await db.query('DELETE FROM batches WHERE id IN (?)', [strayIds]);
+
+            res.json({ message: `Successfully cleared ${strayIds.length} stray batches and their assignments.` });
+
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ message: 'Server error cleaning up strays' });
+        }
+    },
+
+    setupDb: async (req, res) => {
+        try {
+            const { setup } = require('../setupDb');
+            await setup();
+            res.json({ message: 'Database setup triggered manually.' });
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ message: 'Setup failed' });
+        }
+    },
+
+    getSubjects: async (req, res) => {
+        try {
+            const userId = req.user.id;
+            const db = req.app.locals.db;
+
+            // 1. Get SI's Class/Grade
+            const [assignments] = await db.query('SELECT class_id FROM class_super_instructors WHERE super_instructor_id = ?', [userId]);
+
+            if (assignments.length === 0) {
+                return res.json([]);
+            }
+
+            const classId = assignments[0].class_id;
+
+            // 2. Get Subjects for this Class
+            const [subjects] = await db.query('SELECT id, name FROM subjects WHERE class_id = ?', [classId]);
+
+            res.json(subjects);
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ message: 'Server error fetching subjects' });
         }
     }
 };

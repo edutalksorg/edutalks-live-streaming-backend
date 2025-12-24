@@ -60,9 +60,23 @@ async function setup() {
                 subject_id INT,
                 status ENUM('scheduled', 'live', 'completed') DEFAULT 'scheduled',
                 agora_channel VARCHAR(255),
+                reminder_sent BOOLEAN DEFAULT FALSE,
+                chat_locked BOOLEAN DEFAULT FALSE,
+                audio_locked BOOLEAN DEFAULT FALSE,
+                video_locked BOOLEAN DEFAULT FALSE,
+                screen_share_allowed BOOLEAN DEFAULT FALSE,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (instructor_id) REFERENCES users(id),
                 FOREIGN KEY (subject_id) REFERENCES subjects(id)
+            )`,
+            `CREATE TABLE IF NOT EXISTS live_class_attendance (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                class_id INT NOT NULL,
+                user_id INT NOT NULL,
+                joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                left_at TIMESTAMP NULL,
+                FOREIGN KEY (class_id) REFERENCES live_classes(id) ON DELETE CASCADE,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             )`,
             `CREATE TABLE IF NOT EXISTS exams (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -198,6 +212,11 @@ async function setup() {
             "ALTER TABLE exam_submissions ADD COLUMN status ENUM('pending', 'graded') DEFAULT 'pending'",
             "ALTER TABLE exam_submissions MODIFY COLUMN file_path VARCHAR(255) NULL",
             "ALTER TABLE exams ADD COLUMN attempts_allowed INT DEFAULT 1",
+            "ALTER TABLE live_classes ADD COLUMN reminder_sent BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE live_classes ADD COLUMN chat_locked BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE live_classes ADD COLUMN audio_locked BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE live_classes ADD COLUMN video_locked BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE live_classes ADD COLUMN screen_share_allowed BOOLEAN DEFAULT FALSE",
         ];
 
         for (const sql of migrations) {

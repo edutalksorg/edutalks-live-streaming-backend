@@ -21,6 +21,7 @@ router.get('/student', verifyToken, authorizeRoles('student'), examController.ge
 router.get('/:id', verifyToken, examController.getExamById);
 
 router.post('/submit', verifyToken, upload.single('file'), examController.submitExam);
+router.post('/submissions/:id/upload-worksheet', verifyToken, authorizeRoles('student'), upload.single('file'), examController.uploadWorksheet);
 router.get('/:id/submissions', verifyToken, authorizeRoles('super_instructor', 'instructor', 'super_admin'), examController.getExamSubmissions);
 router.put('/submissions/:id/grade', verifyToken, authorizeRoles('super_instructor', 'instructor', 'super_admin'), examController.gradeSubmission);
 module.exports = router;
