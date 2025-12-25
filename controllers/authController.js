@@ -117,29 +117,38 @@ exports.register = async (req, res) => {
         const newUserId = userResult.insertId;
 
         if (requestedRole === 'student') {
-            if (grade) {
-                try {
-                    const batchService = new BatchAllocationService(req.app.locals.db);
-                    await batchService.allocateStudentToBatches(newUserId, grade);
-                } catch (batchErr) {
-                    console.error("Batch allocation failed:", batchErr);
-                }
-            }
-            try {
-                await emailService.sendStudentWelcomeEmail(email, name);
-            } catch (emailErr) {
-                console.error("Student email sending failed:", emailErr);
-            }
+            // Send success response IMMEDIATELY
             res.status(201).json({ message: 'Student registered successfully' });
+
+            // Run background tasks (Fire-and-Forget)
+            (async () => {
+                if (grade) {
+                    try {
+                        const batchService = new BatchAllocationService(req.app.locals.db);
+                        await batchService.allocateStudentToBatches(newUserId, grade);
+                    } catch (batchErr) {
+                        console.error("Batch allocation failed (Background):", batchErr);
+                    }
+                }
+                try {
+                    await emailService.sendStudentWelcomeEmail(email, name);
+                } catch (emailErr) {
+                    console.error("Student email sending failed (Background):", emailErr);
+                }
+            })();
+
         } else {
-            // REMOVED EMAIL SENDING (User requested no emails)
-            try {
-                await emailService.sendRegistrationEmail(email, name, requestedRole);
-                // Admin notification disabled as per request
-            } catch (emailErr) {
-                console.error("Email sending failed:", emailErr);
-            }
+            // Send success response IMMEDIATELY
             res.status(201).json({ message: 'Account request submitted. Please wait for Admin approval. You can check your status by logging in.' });
+
+            // Run background tasks (Fire-and-Forget)
+            (async () => {
+                try {
+                    await emailService.sendRegistrationEmail(email, name, requestedRole);
+                } catch (emailErr) {
+                    console.error("Email sending failed (Background):", emailErr);
+                }
+            })();
         }
 
     } catch (err) {

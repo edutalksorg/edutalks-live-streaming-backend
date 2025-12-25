@@ -24,12 +24,13 @@ const superInstructorController = {
 
             // Total Instructors managing subjects for this class
             // Updated: Count distinct instructors from the batches table linked to subjects of this class
+            // Total Instructors in this Grade (active users with instructor role)
             const [instructors] = await db.query(
-                `SELECT COUNT(DISTINCT b.instructor_id) as count 
-                 FROM batches b 
-                 JOIN subjects s ON b.subject_id = s.id 
-                 WHERE s.class_id = ?`,
-                [classId]
+                `SELECT COUNT(*) as count 
+                 FROM users u 
+                 JOIN roles r ON u.role_id = r.id 
+                 WHERE r.name = 'instructor' AND u.grade = ? AND u.is_active = 1`,
+                [className]
             );
 
             // 4. Detailed Data: Subjects -> Batches -> Instructors
