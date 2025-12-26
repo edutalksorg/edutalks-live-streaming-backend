@@ -231,6 +231,47 @@ const instructorController = {
             console.error(err);
             res.status(500).json({ message: 'Server error deleting exam' });
         }
+    },
+
+    getStudentProgress: async (req, res) => {
+        try {
+            const db = req.app.locals.db;
+            const instructorId = req.user.id;
+            const { studentId } = req.params;
+
+            // 1. Verify Access (Ensure student is in one of the instructor's batches)
+            const [accessCheck] = await db.query(`
+                SELECT sb.id 
+                FROM student_batches sb
+                JOIN batches b ON sb.batch_id = b.id
+                WHERE sb.student_id = ? AND b.instructor_id = ?
+            `, [studentId, instructorId]);
+
+            if (accessCheck.length === 0) {
+                return res.status(403).json({ message: 'Unauthorized: Student is not in your batches.' });
+            }
+
+            // 2. Fetch Exam Results
+            // We want all exams created by THIS instructor that the student has attempted or missed?
+            // For "Progress", usually we show what they have done. Use exam_submissions.
+
+            const [results] = await db.query(`
+                SELECT es.id as submission_id, e.title as exam_title, es.score as auto_score, 
+                       es.submitted_at, sr.score as reviewed_score, sr.review_text,
+                       e.total_marks
+                FROM exam_submissions es
+                JOIN exams e ON es.exam_id = e.id
+                LEFT JOIN submission_reviews sr ON es.id = sr.submission_id
+                WHERE es.student_id = ? AND e.instructor_id = ?
+                ORDER BY es.submitted_at DESC
+            `, [studentId, instructorId]);
+
+            res.json(results);
+
+        } catch (err) {
+            console.error("Error in getStudentProgress:", err);
+            res.status(500).json({ message: 'Server error fetching student progress' });
+        }
     }
 };
 

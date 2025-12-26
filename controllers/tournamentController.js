@@ -31,16 +31,18 @@ exports.getStudentTournaments = async (req, res) => {
         if (users.length === 0) return res.status(404).json({ message: 'Student not found' });
         const grade = users[0].grade;
 
-        // 2. Get Tournaments for that Grade
-        // If subject_id is null, it's for all students? Or we should require subject_id.
-        // For now, filter by subject grade.
+        // 2. Get Tournaments for that Student's Assigned Instructors
+        // We join via student_batches -> batches to ensure the student is actually
+        // assigned to the instructor who created the tournament.
         const [tournaments] = await db.query(`
-            SELECT e.*, s.name as subject_name
+            SELECT DISTINCT e.*, s.name as subject_name
             FROM exams e
+            JOIN batches b ON e.instructor_id = b.instructor_id
+            JOIN student_batches sb ON b.id = sb.batch_id
             LEFT JOIN subjects s ON e.subject_id = s.id
-            WHERE e.type = "tournament" AND (s.grade = ? OR s.class_id = (SELECT id FROM classes WHERE name = ?) OR e.subject_id IS NULL)
+            WHERE e.type = "tournament" AND sb.student_id = ?
             ORDER BY e.date DESC
-        `, [grade, grade]);
+        `, [studentId]);
 
         res.json(tournaments);
     } catch (err) {

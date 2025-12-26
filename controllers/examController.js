@@ -5,6 +5,12 @@ exports.createExam = async (req, res) => {
             'INSERT INTO exams (title, description, date, duration, total_marks, questions, instructor_id, subject_id, type, allow_upload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             [title, description, date, duration, total_marks, JSON.stringify(questions), instructor_id, subject_id, type || 'normal', allow_upload || false]
         );
+        // Emit global sync event
+        const io = req.app.locals.io;
+        if (io) {
+            io.emit('global_sync', { type: 'exams', action: 'create' });
+        }
+
         res.status(201).json({ message: 'Exam created successfully' });
     } catch (err) {
         console.error(err);

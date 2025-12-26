@@ -28,7 +28,7 @@ router.get('/instructor/:instructorId', verifyToken, noteController.getInstructo
 
 // If delete was intended, ensure it exists in controller first
 if (noteController.deleteNote) {
-    router.delete('/:id', verifyToken, authorizeRoles('super_instructor', 'super_admin'), noteController.deleteNote);
+    router.delete('/:id', verifyToken, authorizeRoles('super_instructor', 'instructor', 'super_admin'), noteController.deleteNote);
 }
 
 module.exports = router;

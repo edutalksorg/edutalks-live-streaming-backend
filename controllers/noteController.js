@@ -31,6 +31,13 @@ exports.uploadNote = async (req, res) => {
             [title, description || null, file_path, instructor_id, subject_id]
         );
 
+        // 5. Emit global sync event
+        const io = req.app.locals.io;
+        if (io) {
+            io.emit('global_sync', { type: 'notes', action: 'create', data: { title, file_path } });
+            console.log(`[uploadNote] Global sync emitted: notes.create`);
+        }
+
         res.status(201).json({ message: 'Note uploaded successfully', file_path });
     } catch (err) {
         console.error("Error in uploadNote:", err);
@@ -86,11 +93,60 @@ exports.getInstructorNotes = async (req, res) => {
 
 exports.deleteNote = async (req, res) => {
     const { id } = req.params;
+    const userId = req.user.id;
+    const userRole = req.user.role;
+    const db = req.app.locals.db;
+
+    console.log(`[deleteNote] Attempting to delete note ID: ${id} by User: ${userId} (${userRole})`);
+
     try {
-        await req.app.locals.db.query('DELETE FROM notes WHERE id = ?', [id]);
+        // 1. Get the note's file_path and owner
+        const [notes] = await db.query('SELECT file_path, uploaded_by FROM notes WHERE id = ?', [id]);
+        if (notes.length === 0) {
+            console.log(`[deleteNote] Note ID: ${id} not found.`);
+            return res.status(404).json({ message: 'Note not found' });
+        }
+
+        const note = notes[0];
+        console.log(`[deleteNote] Found note. Owner: ${note.uploaded_by}, Path: ${note.file_path}`);
+
+        // 2. Authorization Check: ONLY uploader or super_admin can delete
+        const isOwner = parseInt(note.uploaded_by) === parseInt(userId);
+        const isSuperAdmin = userRole === 'super_admin';
+
+        if (!isSuperAdmin && !isOwner) {
+            console.log(`[deleteNote] Unauthorized delete attempt. Owner: ${note.uploaded_by}, Requester: ${userId} (${userRole})`);
+            return res.status(403).json({ message: 'Unauthorized: You can only delete materials you uploaded.' });
+        }
+
+        // 3. Delete from Database
+        await db.query('DELETE FROM notes WHERE id = ?', [id]);
+        console.log(`[deleteNote] Record deleted from DB.`);
+
+        // 4. Physical File Cleanup
+        // Clean up leading slash to avoid issues with path.join on some systems
+        const relativePath = note.file_path.replace(/^\//, '');
+        const absolutePath = path.join(__dirname, '..', relativePath);
+
+        console.log(`[deleteNote] Attempting to delete file at: ${absolutePath}`);
+        fs.unlink(absolutePath, (err) => {
+            if (err) {
+                console.error(`[deleteNote] Failed to delete physical file: ${absolutePath}`, err);
+            } else {
+                console.log(`[deleteNote] Physical file successfully deleted: ${absolutePath}`);
+            }
+        });
+
+        // 5. Emit global sync event
+        const io = req.app.locals.io;
+        if (io) {
+            io.emit('global_sync', { type: 'notes', action: 'delete', id: id });
+            console.log(`[deleteNote] Global sync emitted: notes.delete (ID: ${id})`);
+        }
+
         res.json({ message: 'Note deleted successfully' });
     } catch (err) {
         console.error("Error in deleteNote:", err);
-        res.status(500).json({ message: 'Server error' });
+        res.status(500).json({ message: 'Server error: ' + err.message });
     }
 };

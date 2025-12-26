@@ -9,10 +9,30 @@ dotenv.config();
 
 const app = express();
 const httpServer = createServer(app);
+const allowedOrigins = [
+    process.env.FRONTEND_URL,
+    "http://localhost:5173"
+].filter(Boolean);
+
+const corsOptions = {
+    origin: function (origin, callback) {
+        // Allow requests with no origin (like mobile apps or curl requests)
+        if (!origin) return callback(null, true);
+
+        if (allowedOrigins.indexOf(origin) === -1) {
+            const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+            return callback(new Error(msg), false);
+        }
+        return callback(null, true);
+    },
+    credentials: true
+};
+
 const io = new Server(httpServer, {
     cors: {
-        origin: "*", // In production, replace with client URL
-        methods: ["GET", "POST"]
+        origin: allowedOrigins,
+        methods: ["GET", "POST"],
+        credentials: true
     }
 });
 
@@ -20,7 +40,7 @@ const io = new Server(httpServer, {
 app.locals.io = io;
 
 // Middleware
-app.use(cors());
+app.use(cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -109,9 +129,10 @@ io.on('connection', (socket) => {
     socket.on('join_class', async (data) => {
         const classId = typeof data === 'object' ? data.classId : data;
         const userId = typeof data === 'object' ? data.userId : null;
+        const classType = typeof data === 'object' ? data.classType : 'regular';
         const room = String(classId);
         socket.join(room);
-        console.log(`[Socket] User ${socket.id} joined room: ${room}`);
+        console.log(`[Socket] User ${socket.id} joined room: ${room} (${classType})`);
 
         if (userId) {
             try {
@@ -119,11 +140,15 @@ io.on('connection', (socket) => {
                 const role = typeof data === 'object' ? data.role : 'Student';
                 const db = app.locals.db;
                 if (db) {
-                    await db.query('INSERT INTO live_class_attendance (class_id, user_id) VALUES (?, ?)', [classId, userId]);
-                    // ... rest of logic
+                    if (classType === 'super') {
+                        await db.query('INSERT INTO live_class_attendance (super_class_id, user_id, class_type) VALUES (?, ?, ?)', [classId, userId, 'super']);
+                    } else {
+                        await db.query('INSERT INTO live_class_attendance (class_id, user_id, class_type) VALUES (?, ?, ?)', [classId, userId, 'regular']);
+                    }
                 }
                 socket.userId = userId;
                 socket.classId = classId;
+                socket.classType = classType;
                 socket.userName = userName;
                 socket.role = role;
                 socket.to(room).emit('user_joined', { userId, userName, role });
@@ -137,6 +162,27 @@ io.on('connection', (socket) => {
                 socket.emit('current_users', members);
             } catch (err) {
                 console.error("Attendance Log Error:", err);
+            }
+        }
+    });
+
+    socket.on('disconnect', async () => {
+        console.log('User disconnected:', socket.id);
+        if (socket.userId && socket.classId) {
+            const room = String(socket.classId);
+            socket.to(room).emit('user_left', { userId: socket.userId });
+
+            try {
+                const db = app.locals.db;
+                if (db) {
+                    if (socket.classType === 'super') {
+                        await db.query('UPDATE live_class_attendance SET left_at = CURRENT_TIMESTAMP WHERE super_class_id = ? AND user_id = ? AND left_at IS NULL', [socket.classId, socket.userId]);
+                    } else {
+                        await db.query('UPDATE live_class_attendance SET left_at = CURRENT_TIMESTAMP WHERE class_id = ? AND user_id = ? AND left_at IS NULL', [socket.classId, socket.userId]);
+                    }
+                }
+            } catch (err) {
+                console.error("Attendance Update Error on Disconnect:", err);
             }
         }
     });

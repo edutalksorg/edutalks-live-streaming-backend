@@ -56,6 +56,11 @@ exports.createClass = async (req, res) => {
             }
         }
 
+        // Emit global sync event
+        if (req.app.locals.io) {
+            req.app.locals.io.emit('global_sync', { type: 'classes', action: 'create' });
+        }
+
         res.status(201).json({ message: 'Class scheduled successfully', agora_channel });
     } catch (err) {
         console.error(err);
@@ -223,6 +228,7 @@ exports.startClass = async (req, res) => {
         // Emit Socket Event for real-time dashboard updates
         if (req.app.locals.io) {
             req.app.locals.io.emit('class_live', { classId: id, status: 'live' });
+            req.app.locals.io.emit('global_sync', { type: 'classes', action: 'start', id });
         }
 
         res.json({ message: 'Class started' });
@@ -249,6 +255,7 @@ exports.endClass = async (req, res) => {
             req.app.locals.io.to(id).emit('class_ended', { classId: id });
             // Notify dashboards to refresh
             req.app.locals.io.emit('class_ended', { classId: id });
+            req.app.locals.io.emit('global_sync', { type: 'classes', action: 'end', id });
         }
 
         res.json({ message: 'Class ended' });

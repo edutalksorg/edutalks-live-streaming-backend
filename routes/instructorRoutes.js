@@ -12,5 +12,6 @@ router.delete('/exams/:id', verifyToken, authorizeRoles('instructor'), instructo
 router.get('/exams/:examId/submissions', verifyToken, authorizeRoles('instructor'), instructorController.getSubmissions);
 router.post('/submissions/review', verifyToken, authorizeRoles('instructor'), instructorController.reviewSubmission);
 router.post('/notes', verifyToken, authorizeRoles('instructor'), instructorController.uploadNotes);
+router.get('/students/:studentId/progress', verifyToken, authorizeRoles('instructor'), instructorController.getStudentProgress);
 
 module.exports = router;
