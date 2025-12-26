@@ -18,7 +18,7 @@ const superInstructorController = {
             // 3. Stats
             // Total Students in this Grade (only active students, no duplicates)
             const [students] = await db.query(
-                'SELECT COUNT(DISTINCT u.id) as count FROM users u JOIN roles r ON u.role_id = r.id WHERE r.name = "student" AND u.grade = ? AND u.is_active = 1',
+                'SELECT COUNT(DISTINCT u.id) as count FROM users u JOIN roles r ON u.role_id = r.id WHERE r.name = "student" AND u.grade = ? AND u.is_active = 1 AND u.plan_name != "Free"',
                 [className]
             );
 
@@ -299,7 +299,7 @@ const superInstructorController = {
             const [allStudents] = await db.query(
                 `SELECT u.id FROM users u 
                  JOIN roles r ON u.role_id = r.id 
-                 WHERE r.name = 'student' AND u.grade = ? AND u.is_active = 1`,
+                 WHERE r.name = 'student' AND u.grade = ? AND u.is_active = 1 AND u.plan_name != 'Free'`,
                 [grade]
             );
 
@@ -371,10 +371,10 @@ const superInstructorController = {
             const grade = assignments[0].grade;
 
             const [students] = await db.query(
-                `SELECT u.id, u.name, u.email, u.created_at, u.phone, u.is_active
+                `SELECT u.id, u.name, u.email, u.created_at, u.phone, u.is_active, u.plan_name
                  FROM users u 
                  WHERE u.role_id = (SELECT id FROM roles WHERE name = 'student')
-                 AND u.grade = ?`,
+                 AND u.grade = ? AND u.plan_name != 'Free'`,
                 [grade]
             );
             res.json(students);

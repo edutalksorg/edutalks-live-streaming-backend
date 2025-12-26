@@ -68,6 +68,10 @@ exports.login = async (req, res) => {
                 email: user.email,
                 role: user.role_name,
                 role_id: user.role_id,
+                grade: user.grade,
+                plan_name: user.plan_name,
+                subscription_expires_at: user.subscription_expires_at,
+                phone: user.phone,
                 assignedClass
             }
         });
@@ -154,5 +158,49 @@ exports.register = async (req, res) => {
     } catch (err) {
         console.error(err);
         res.status(500).json({ message: 'Server error: ' + err.message });
+    }
+};
+
+exports.getProfile = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const [users] = await req.app.locals.db.query(
+            'SELECT u.*, r.name as role_name FROM users u JOIN roles r ON u.role_id = r.id WHERE u.id = ?',
+            [userId]
+        );
+
+        if (users.length === 0) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        const user = users[0];
+
+        let assignedClass = null;
+        if (user.role_name === 'super_instructor') {
+            const [classRecord] = await req.app.locals.db.query(
+                'SELECT c.id, c.name FROM class_super_instructors csi JOIN classes c ON csi.class_id = c.id WHERE csi.super_instructor_id = ?',
+                [user.id]
+            );
+            if (classRecord.length > 0) {
+                assignedClass = classRecord[0];
+            }
+        }
+
+        res.json({
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            role: user.role_name,
+            role_id: user.role_id,
+            grade: user.grade,
+            plan_name: user.plan_name,
+            subscription_expires_at: user.subscription_expires_at,
+            phone: user.phone,
+            assignedClass
+        });
+
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'Server error' });
     }
 };
