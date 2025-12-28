@@ -125,15 +125,9 @@ exports.register = async (req, res) => {
             res.status(201).json({ message: 'Student registered successfully' });
 
             // Run background tasks (Fire-and-Forget)
+            // NOTE: Batch allocation is now handled ONLY after payment verification
+            // See paymentController.verifyPayment for auto-allocation logic
             (async () => {
-                if (grade) {
-                    try {
-                        const batchService = new BatchAllocationService(req.app.locals.db);
-                        await batchService.allocateStudentToBatches(newUserId, grade);
-                    } catch (batchErr) {
-                        console.error("Batch allocation failed (Background):", batchErr);
-                    }
-                }
                 try {
                     await emailService.sendStudentWelcomeEmail(email, name);
                 } catch (emailErr) {

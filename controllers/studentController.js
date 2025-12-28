@@ -166,14 +166,16 @@ const studentController = {
                 return res.json([]); // No grade, no subjects
             }
 
-            // 2. Get Subjects (Including Assigned Instructor & Deactivation Handling)
+            // 2. Get Subjects (Including Assigned Instructor - ONLY if student is in that batch)
             const [subjects] = await db.query(`
                 SELECT s.id, s.name, 
-                       CASE WHEN u.is_active = 0 THEN CONCAT(u.name, ' (Instructor removed)') ELSE u.name END as instructor_name
+                       (SELECT CASE WHEN u2.is_active = 0 THEN CONCAT(u2.name, ' (Instructor removed)') ELSE u2.name END
+                        FROM student_batches sb2
+                        JOIN batches b2 ON sb2.batch_id = b2.id
+                        JOIN users u2 ON b2.instructor_id = u2.id
+                        WHERE sb2.student_id = ? AND b2.subject_id = s.id
+                        LIMIT 1) as instructor_name
                 FROM subjects s
-                LEFT JOIN batches b ON s.id = b.subject_id
-                LEFT JOIN student_batches sb ON b.id = sb.batch_id AND sb.student_id = ?
-                LEFT JOIN users u ON b.instructor_id = u.id
                 WHERE s.grade = ? OR s.class_id = (SELECT id FROM classes WHERE name = ? OR name LIKE ?)
             `, [studentId, grade, grade, `%${grade}%`]);
 

@@ -24,6 +24,23 @@ exports.getAllBatches = async (req, res) => {
         query += ` ORDER BY c.name, s.name`;
 
         const [batches] = await db.query(query, params);
+
+        // Fetch students for these batches
+        if (batches.length > 0) {
+            const batchIds = batches.map(b => b.id);
+            const [students] = await db.query(`
+                SELECT sb.batch_id, u.id, u.name, u.plan_name 
+                FROM student_batches sb 
+                JOIN users u ON sb.student_id = u.id 
+                WHERE sb.batch_id IN (?)
+            `, [batchIds]);
+
+            // Map students to batches
+            batches.forEach(batch => {
+                batch.students = students.filter(s => s.batch_id === batch.id);
+            });
+        }
+
         res.json(batches);
     } catch (err) {
         console.error(err);

@@ -72,6 +72,53 @@ exports.verifyPayment = async (req, res) => {
                 [planName || 'Pro', expiresAt, userId]
             );
 
+            // 3. Auto-Allocate Student to Batches
+            try {
+                // Get student's grade
+                const [userInfo] = await db.query('SELECT grade FROM users WHERE id = ?', [userId]);
+                if (userInfo.length > 0 && userInfo[0].grade) {
+                    const grade = userInfo[0].grade;
+
+                    // Get all subjects for this grade
+                    const [subjects] = await db.query(`
+                        SELECT s.id FROM subjects s 
+                        WHERE s.grade = ? OR s.class_id = (SELECT id FROM classes WHERE name = ?)
+                    `, [grade, grade]);
+
+                    for (const subject of subjects) {
+                        // Check if student is already assigned to a batch for this subject
+                        const [existingAssignment] = await db.query(`
+                            SELECT sb.id FROM student_batches sb
+                            JOIN batches b ON sb.batch_id = b.id
+                            WHERE sb.student_id = ? AND b.subject_id = ?
+                        `, [userId, subject.id]);
+
+                        if (existingAssignment.length === 0) {
+                            // Find a batch with available capacity for this subject
+                            const [availableBatches] = await db.query(`
+                                SELECT b.id, b.student_count, b.max_students
+                                FROM batches b
+                                WHERE b.subject_id = ? AND b.student_count < b.max_students
+                                ORDER BY b.id ASC
+                                LIMIT 1
+                            `, [subject.id]);
+
+                            if (availableBatches.length > 0) {
+                                const batchId = availableBatches[0].id;
+                                // Assign student to batch
+                                await db.query('INSERT INTO student_batches (student_id, batch_id) VALUES (?, ?)', [userId, batchId]);
+                                // Update batch student count
+                                await db.query('UPDATE batches SET student_count = student_count + 1 WHERE id = ?', [batchId]);
+                            }
+                        }
+                    }
+                    console.log(`[AutoAllocation] Allocated student ${userId} to batches for grade ${grade}`);
+                }
+            } catch (allocErr) {
+                console.error('[AutoAllocation] Error during auto-allocation:', allocErr);
+                // Don't fail the payment, just log the error
+            }
+
             res.json({ success: true, message: 'Payment verified and subscription activated' });
         } catch (err) {
             console.error(err);
