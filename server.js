@@ -215,6 +215,27 @@ io.on('connection', (socket) => {
     socket.on('approve_screen_share', (data) => { io.to(String(data.classId)).emit('screen_share_approved', data); });
     socket.on('lower_all_hands', (classId) => { io.to(String(classId)).emit('all_hands_lowered'); });
 
+    // --- Mute/Unmute Logic with Permission Tracking ---
+    socket.on('admin_mute_student', (data) => {
+        // Mute specific student and revoke their unmute permission
+        io.to(String(data.classId)).emit('force_mute_student', { studentId: data.studentId });
+    });
+
+    socket.on('admin_mute_all', (data) => {
+        // Mute all students and revoke all unmute permissions
+        socket.to(String(data.classId)).emit('force_mute_all');
+    });
+
+    socket.on('admin_grant_unmute', (data) => {
+        // Grant unmute permission to a specific student
+        io.to(String(data.classId)).emit('grant_unmute_permission', { studentId: data.studentId });
+    });
+
+    socket.on('admin_request_unmute', (data) => {
+        // Send unmute request to student (they can choose to accept)
+        io.to(String(data.classId)).emit('request_unmute_student', { studentId: data.studentId });
+    });
+
     socket.on('disconnect', async () => {
         if (socket.userId && socket.classId) {
             try {
