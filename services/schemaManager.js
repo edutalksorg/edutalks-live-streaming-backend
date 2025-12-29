@@ -23,8 +23,12 @@ class SchemaManager {
             await this.pool.query('SET FOREIGN_KEY_CHECKS = 0');
 
             for (const file of files) {
+                // Clear require cache to ensure we use the latest schema
+                const schemaPath = path.join(this.schemasDir, file);
+                delete require.cache[require.resolve(schemaPath)];
+
                 // console.log(`Processing schema file: ${file}`);
-                const schema = require(path.join(this.schemasDir, file));
+                const schema = require(schemaPath);
                 if (!schema.tableName || !schema.createSql) {
                     console.error(`❌ Invalid schema exported in: ${file}. Expected { tableName, createSql, columns }`);
                     continue;

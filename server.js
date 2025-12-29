@@ -85,6 +85,12 @@ async function startServer() {
         const { startReminderService } = require('./services/reminderService');
         startReminderService(pool);
 
+        const { startNotificationService } = require('./services/notificationService');
+        startNotificationService(pool);
+
+        const { startTournamentStatusService } = require('./services/tournamentStatusService');
+        startTournamentStatusService(pool);
+
         // 4. Configure Routes
         // Serve uploaded files
         app.use('/uploads', express.static('uploads'));

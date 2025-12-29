@@ -66,6 +66,14 @@ async function setup() {
             await dbConnection.end();
         }
 
+        // 6. Seed Tournament Levels
+        try {
+            const { seedTournamentLevels } = require('./seedTournamentLevels');
+            await seedTournamentLevels(pool);
+        } catch (err) {
+            console.error("Tournament Levels Seeding Error:", err);
+        }
+
         console.log('🚀 Database initialization complete.');
         // We don't close the pool here because this script might be required by server.js which uses its own pool.
         // But if this is run as standalone script, we should exit.

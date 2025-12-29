@@ -24,6 +24,16 @@ const studentController = {
                 WHERE sb.student_id = ? AND e.date >= CURDATE() AND (e.expiry_date IS NULL OR e.expiry_date >= NOW())
             `, [studentId]);
 
+            const [liveTournamentsCount] = await db.query(`
+                SELECT COUNT(*) as count FROM tournaments t
+                WHERE t.grade = ? AND (t.status = 'LIVE' OR (t.status = 'UPCOMING' AND t.exam_start <= NOW() AND t.exam_end > NOW()))
+            `, [grade]);
+
+            const [upcomingTournamentsCount] = await db.query(`
+                SELECT COUNT(*) as count FROM tournaments t
+                WHERE t.grade = ? AND t.status = 'UPCOMING' AND t.exam_start > NOW()
+            `, [grade]);
+
             const [notesCount] = await db.query(`
                 SELECT COUNT(*) as count FROM notes n 
                 JOIN batches b ON n.uploaded_by = b.instructor_id AND n.subject_id = b.subject_id
@@ -55,16 +65,31 @@ const studentController = {
                 LIMIT 5
             `, [studentId]);
 
+            // 4b. Get Live/Upcoming Tournaments (Exclude already submitted)
+            const [liveTournaments] = await db.query(`
+                SELECT t.*, u.name as instructor_name, s.name as subject_name
+                FROM tournaments t
+                JOIN users u ON t.instructor_id = u.id
+                LEFT JOIN subjects s ON t.subject_id = s.id
+                WHERE t.grade = ? AND t.status IN ('LIVE', 'UPCOMING')
+                AND (SELECT COUNT(*) FROM tournament_registrations tr WHERE tr.tournament_id = t.id AND tr.student_id = ?) > 0
+                AND NOT EXISTS (SELECT 1 FROM tournament_attempts ta WHERE ta.tournament_id = t.id AND ta.student_id = ?)
+                AND (t.status = 'LIVE' OR (t.status = 'UPCOMING' AND t.exam_start <= NOW() AND t.exam_end > NOW()))
+                ORDER BY t.status = 'LIVE' DESC, t.exam_start ASC
+                LIMIT 5
+            `, [grade, studentId, studentId]);
+
             console.log(`[getDashboard] Student ID: ${studentId}, Upcoming Classes Found: ${upcomingClasses.length}`);
             if (upcomingClasses.length > 0) {
                 console.log(`[getDashboard] First Class Details:`, JSON.stringify(upcomingClasses[0]));
             }
 
             // 5. Get Recent Test Results (Including Reviews)
-            const [recentResults] = await db.query(`
+            const [examResults] = await db.query(`
                 SELECT es.id as submission_id, es.score as auto_score, es.submitted_at, 
                        es.file_path, e.title, e.total_marks, s.name as subject_name,
-                       sr.review_text, sr.score as reviewed_score
+                       sr.review_text, sr.score as reviewed_score,
+                       'exam' as type
                 FROM exam_submissions es
                 JOIN exams e ON es.exam_id = e.id
                 JOIN subjects s ON e.subject_id = s.id
@@ -74,19 +99,62 @@ const studentController = {
                 LIMIT 5
             `, [studentId]);
 
+            // 5b. Get Recent Tournament Results
+            const [tournamentResults] = await db.query(`
+                SELECT ta.id as submission_id, ta.score, ta.submitted_at, 
+                       t.name as title, t.questions,
+                       'Tournament' as subject_name
+                FROM tournament_attempts ta
+                JOIN tournaments t ON ta.tournament_id = t.id
+                WHERE ta.student_id = ?
+                ORDER BY ta.submitted_at DESC
+                LIMIT 5
+            `, [studentId]);
+
+            // Process Tournament Results to match shape
+            const processedTournaments = tournamentResults.map(t => {
+                let totalMarks = 100; // Default
+                try {
+                    const q = typeof t.questions === 'string' ? JSON.parse(t.questions) : t.questions;
+                    if (Array.isArray(q)) {
+                        totalMarks = q.length * 4; // Assuming 4 marks per question standard
+                    }
+                } catch (e) { }
+
+                return {
+                    submission_id: t.submission_id,
+                    score: t.score,
+                    submitted_at: t.submitted_at,
+                    file_path: 'online-mode', // Hack to hide upload button
+                    title: t.title,
+                    total_marks: totalMarks || 100,
+                    subject_name: 'TOURNAMENT',
+                    review_text: null,
+                    reviewed_score: null,
+                    type: 'tournament'
+                };
+            });
+
+            // Merge and Sort
+            const allResults = [...examResults.map(r => ({
+                ...r,
+                score: r.reviewed_score !== null ? r.reviewed_score : r.auto_score
+            })), ...processedTournaments];
+
+            allResults.sort((a, b) => new Date(b.submitted_at) - new Date(a.submitted_at));
+            const recentResults = allResults.slice(0, 5);
+
             res.json({
                 grade,
                 stats: {
-                    liveNow: classesCount[0].count,
-                    upcomingExams: examsCount[0].count,
-                    studyMaterials: notesCount[0].count
+                    liveNow: (classesCount[0].count || 0) + (liveTournamentsCount[0].count || 0),
+                    upcomingExams: (examsCount[0].count || 0) + (upcomingTournamentsCount[0].count || 0),
+                    studyMaterials: notesCount[0].count || 0
                 },
                 batches,
                 upcomingClasses,
-                recentResults: recentResults.map(r => ({
-                    ...r,
-                    score: r.reviewed_score !== null ? r.reviewed_score : r.auto_score
-                }))
+                liveTournaments,
+                recentResults
             });
 
         } catch (err) {
