@@ -208,6 +208,7 @@ io.on('connection', (socket) => {
     socket.on('toggle_screen', (data) => { io.to(String(data.classId)).emit('screen_status', { locked: data.locked }); });
     socket.on('toggle_whiteboard', (data) => { io.to(String(data.classId)).emit('whiteboard_status', { locked: data.locked }); });
     socket.on('toggle_whiteboard_visibility', (data) => { io.to(String(data.classId)).emit('whiteboard_visibility', { show: data.show }); });
+    socket.on('toggle_recording_protection', (data) => { io.to(String(data.classId)).emit('recording_protection_status', { active: data.active }); });
     socket.on('whiteboard_draw', (data) => { socket.to(String(data.classId)).emit('whiteboard_draw', data); });
     socket.on('whiteboard_clear', (data) => { socket.to(String(data.classId)).emit('whiteboard_clear'); });
     socket.on('send_reaction', (data) => { io.to(String(data.classId)).emit('receive_reaction', data); });
