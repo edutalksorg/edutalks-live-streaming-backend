@@ -51,13 +51,22 @@ exports.verifyPayment = async (req, res) => {
         try {
             const db = req.app.locals.db;
 
-            // 1. Record Payment
+            // 1. Fetch Order Details to get Amount
+            console.log('[PaymentVerify] Fetching order details for:', razorpay_order_id);
+            const orderInfo = await razorpay.orders.fetch(razorpay_order_id);
+            console.log('[PaymentVerify] Order info:', JSON.stringify(orderInfo));
+
+            const amountInPaise = orderInfo.amount;
+            const amountInRupees = amountInPaise / 100;
+            console.log('[PaymentVerify] Amount in paise:', amountInPaise, 'Amount in rupees:', amountInRupees);
+
+            // 2. Record Payment
+            console.log('[PaymentVerify] Inserting payment with amount:', amountInRupees);
             await db.query(
                 'INSERT INTO payments (user_id, order_id, payment_id, amount, currency, status) VALUES (?, ?, ?, ?, ?, ?)',
-                [userId, razorpay_order_id, razorpay_payment_id, 0, 'INR', 'completed'] // Amount is tricky if not passed back, can fetch from order or trust frontend transiently or fetch from razorpay. For now 0 or passed params.
-                // Better: We should probably store the amount when creating the order, OR fetch it here.
-                // Simplicity: Let's assume we update it later or just mark 'completed'.
+                [userId, razorpay_order_id, razorpay_payment_id, amountInRupees, 'INR', 'completed']
             );
+            console.log('[PaymentVerify] Payment record inserted successfully');
 
             // 2. Update User Subscription
             const expiresAt = new Date();

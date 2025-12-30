@@ -198,3 +198,67 @@ exports.getProfile = async (req, res) => {
         res.status(500).json({ message: 'Server error' });
     }
 };
+
+exports.forgotPassword = async (req, res) => {
+    const { email } = req.body;
+    try {
+        const [users] = await req.app.locals.db.query('SELECT * FROM users WHERE email = ?', [email]);
+
+        if (users.length === 0) {
+            // Don't reveal if user exists or not (security best practice)
+            return res.json({ message: 'If that email exists, a reset link has been sent.' });
+        }
+
+        const user = users[0];
+
+        // Generate unique reset token
+        const crypto = require('crypto');
+        const resetToken = crypto.randomBytes(32).toString('hex');
+        const resetTokenExpires = new Date(Date.now() + 3600000); // 1 hour from now
+
+        // Store token in database
+        await req.app.locals.db.query(
+            'UPDATE users SET reset_token = ?, reset_token_expires = ? WHERE id = ?',
+            [resetToken, resetTokenExpires, user.id]
+        );
+
+        // Send reset email
+        await emailService.sendPasswordResetEmail(email, user.name, resetToken);
+
+        res.json({ message: 'If that email exists, a reset link has been sent.' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'Server error' });
+    }
+};
+
+exports.resetPassword = async (req, res) => {
+    const { token, newPassword } = req.body;
+    try {
+        const [users] = await req.app.locals.db.query(
+            'SELECT * FROM users WHERE reset_token = ? AND reset_token_expires > NOW()',
+            [token]
+        );
+
+        if (users.length === 0) {
+            return res.status(400).json({ message: 'Invalid or expired reset token' });
+        }
+
+        const user = users[0];
+
+        // Hash new password
+        const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+        // Update password and clear reset token
+        await req.app.locals.db.query(
+            'UPDATE users SET password = ?, reset_token = NULL, reset_token_expires = NULL WHERE id = ?',
+            [hashedPassword, user.id]
+        );
+
+        res.json({ message: 'Password reset successfully' });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'Server error' });
+    }
+};
+

@@ -25,6 +25,8 @@ module.exports = {
         { name: 'is_active', definition: 'BOOLEAN DEFAULT TRUE' },
         { name: 'subscription_expires_at', definition: 'DATETIME' },
         { name: 'plan_name', definition: "VARCHAR(50) DEFAULT 'Free'" },
-        { name: 'created_at', definition: 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP' }
+        { name: 'created_at', definition: 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP' },
+        { name: 'reset_token', definition: 'VARCHAR(255)' },
+        { name: 'reset_token_expires', definition: 'DATETIME' }
     ]
 };

@@ -320,6 +320,36 @@ const studentController = {
             console.error("Error in getSubjectsFull:", err);
             res.status(500).json({ message: 'Server error' });
         }
+    },
+    updateProfile: async (req, res) => {
+        try {
+            const db = req.app.locals.db;
+            const studentId = req.user.id;
+            const { name, email, phone } = req.body;
+
+            // Validation
+            if (!name || !email) {
+                return res.status(400).json({ message: 'Name and email are required' });
+            }
+
+            // Check if email is taken by another user
+            const [existing] = await db.query('SELECT id FROM users WHERE email = ? AND id != ?', [email, studentId]);
+            if (existing.length > 0) {
+                return res.status(400).json({ message: 'Email already exists' });
+            }
+
+            // Update user
+            await db.query(
+                'UPDATE users SET name = ?, email = ?, phone = ? WHERE id = ?',
+                [name, email, phone || null, studentId]
+            );
+
+            res.json({ message: 'Profile updated successfully' });
+
+        } catch (err) {
+            console.error(err);
+            res.status(500).json({ message: 'Server error' });
+        }
     }
 };
 

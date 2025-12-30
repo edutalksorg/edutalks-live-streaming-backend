@@ -7,6 +7,7 @@ const { verifyToken, authorizeRoles } = require('../middleware/authMiddleware');
 
 router.get('/dashboard', verifyToken, authorizeRoles('student'), studentController.getDashboard);
 router.get('/profile', verifyToken, authorizeRoles('student'), studentController.getProfile);
+router.put('/profile', verifyToken, authorizeRoles('student'), studentController.updateProfile); // Added this line
 router.get('/subjects', verifyToken, authorizeRoles('student'), studentController.getSubjects);
 router.get('/subjects-full', verifyToken, authorizeRoles('student'), studentController.getSubjectsFull);
 router.get('/submissions/:id', verifyToken, authorizeRoles('student'), examController.getSubmissionResult);

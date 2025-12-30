@@ -141,3 +141,20 @@ exports.sendClassReminderEmail = async (userEmail, name, subjectName, startTime,
     `;
     await sendEmail(userEmail, subject, html);
 };
+
+exports.sendPasswordResetEmail = async (userEmail, name, resetToken) => {
+    const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password/${resetToken}`;
+    const subject = 'Password Reset Request - EduTalks';
+    const html = `
+        <h3>Hello ${name},</h3>
+        <p>You requested to reset your password for your EduTalks account.</p>
+        <p>Click the link below to reset your password:</p>
+        <p><a href="${resetUrl}">Reset Password</a></p>
+        <p>This link will expire in <b>1 hour</b>.</p>
+        <p>If you didn't request this, please ignore this email.</p>
+        <br/>
+        <p>Best Regards,<br/>EduTalks Team</p>
+    `;
+    await sendEmail(userEmail, subject, html);
+};
+
