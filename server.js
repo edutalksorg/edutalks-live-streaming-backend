@@ -224,6 +224,7 @@ io.on('connection', (socket) => {
 
     socket.on('admin_mute_all', (data) => {
         // Mute all students and revoke all unmute permissions
+        io.to(String(data.classId)).emit('audio_status', { locked: true });
         socket.to(String(data.classId)).emit('force_mute_all');
     });
 
@@ -235,6 +236,11 @@ io.on('connection', (socket) => {
     socket.on('admin_request_unmute', (data) => {
         // Send unmute request to student (they can choose to accept)
         io.to(String(data.classId)).emit('request_unmute_student', { studentId: data.studentId });
+    });
+
+    socket.on('admin_unlock_all', (data) => {
+        // Unlock all mics - restore permission to everyone
+        io.to(String(data.classId)).emit('unlock_all_mics');
     });
 
     socket.on('disconnect', async () => {
