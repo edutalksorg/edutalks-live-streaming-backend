@@ -11,16 +11,19 @@ const safeParse = (data) => {
     }
 };
 
-// Format ISO or datetime-local string to MySQL YYYY-MM-DD HH:mm:ss (Preserving Exact Input)
+// Format ISO or datetime-local string to MySQL YYYY-MM-DD HH:mm:ss (Converting to UTC)
 const formatDateForMySQL = (dateStr) => {
     if (!dateStr) return null;
     try {
-        // If it's already a MySQL formatted string, return it
-        if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(dateStr)) return dateStr;
-
-        // Convert common formats (T separator) to MySQL format
-        // This ensures that what the user typed in 'datetime-local' is stored exactly
-        return dateStr.replace('T', ' ').split('.')[0].slice(0, 19);
+        const date = new Date(dateStr);
+        if (isNaN(date.getTime())) {
+            // Check if it's already a MySQL formatted string
+            if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(dateStr)) return dateStr;
+            return null;
+        }
+        // Always store as UTC in MySQL
+        // toISOString() returns YYYY-MM-DDTHH:mm:ss.sssZ
+        return date.toISOString().slice(0, 19).replace('T', ' ');
     } catch (e) {
         return null;
     }
@@ -89,8 +92,15 @@ exports.createTournament = async (req, res) => {
             });
         }
 
-        // Convert empty string to null for subject_id
-        const subjectIdValue = subject_id === '' || subject_id === null ? null : subject_id;
+        // Developer log for debugging
+        console.log('Create Tournament Body:', { name, registration_start, registration_end, exam_start, exam_end, max_participants });
+
+        // Convert empty string/null/undefined for optional fields
+        const subjectIdValue = (subject_id === '' || subject_id === null || subject_id === undefined) ? null : subject_id;
+        const maxParticipantsValue = (max_participants === '' || max_participants === null || max_participants === undefined) ? null : max_participants;
+        const prizeValue = (prize === '' || prize === null || prize === undefined) ? null : prize;
+
+        console.log('Processed Processed Fields:', { subjectIdValue, maxParticipantsValue, prizeValue });
 
         // Insert tournament
         const [result] = await db.query(
@@ -103,8 +113,8 @@ exports.createTournament = async (req, res) => {
             [name, description, level_id, subjectIdValue, instructorId,
                 formatDateForMySQL(registration_start), formatDateForMySQL(registration_end),
                 formatDateForMySQL(exam_start), formatDateForMySQL(exam_end),
-                duration, total_questions, total_marks, max_participants,
-                JSON.stringify(questions), is_free ? 1 : 0, prize, grade, tab_switch_limit, screenshot_block ? 1 : 0]
+                duration, total_questions, total_marks, maxParticipantsValue,
+                JSON.stringify(questions), is_free ? 1 : 0, prizeValue, grade, tab_switch_limit, screenshot_block ? 1 : 0]
         );
 
         const tournamentId = result.insertId;
@@ -170,7 +180,7 @@ exports.updateTournament = async (req, res) => {
                     val = JSON.stringify(val);
                 } else if (['registration_start', 'registration_end', 'exam_start', 'exam_end'].includes(field)) {
                     val = formatDateForMySQL(val);
-                } else if ((field === 'subject_id' || field === 'max_participants' || field === 'level_id') && (val === '' || val === null || val === undefined)) {
+                } else if ((field === 'subject_id' || field === 'max_participants' || field === 'level_id' || field === 'prize') && (val === '' || val === null || val === undefined)) {
                     val = null;
                 }
 
@@ -211,7 +221,9 @@ exports.deleteTournament = async (req, res) => {
 
     try {
         const [tournaments] = await db.query(
-            'SELECT status, instructor_id FROM tournaments WHERE id = ?',
+            `SELECT status, instructor_id, 
+             DATE_FORMAT(registration_start, '%Y-%m-%dT%H:%i:%s.000Z') as registration_start_iso
+             FROM tournaments WHERE id = ?`,
             [tournamentId]
         );
 
@@ -225,8 +237,15 @@ exports.deleteTournament = async (req, res) => {
             return res.status(403).json({ message: 'Not authorized to delete this tournament' });
         }
 
-        if (tournament.status !== 'DRAFT') {
-            return res.status(400).json({ message: 'Can only delete DRAFT tournaments' });
+        // Allow deletion for DRAFT and UPCOMING (only if registration hasn't started)
+        const registrationStarted = new Date(tournament.registration_start_iso) <= new Date();
+
+        if (tournament.status === 'DRAFT') {
+            // DRAFT can always be deleted
+        } else if (tournament.status === 'UPCOMING' && !registrationStarted) {
+            // UPCOMING can be deleted only before registration starts
+        } else {
+            return res.status(400).json({ message: 'Cannot delete tournament after registration has started or if it is LIVE/COMPLETED' });
         }
 
         await db.query('DELETE FROM tournaments WHERE id = ?', [tournamentId]);
@@ -261,7 +280,14 @@ exports.getInstructorTournaments = async (req, res) => {
 
         // Show tournaments from ALL instructors of the same grade
         let query = `
-            SELECT t.*,
+            SELECT t.id, t.name, t.description, t.level_id, t.subject_id, t.instructor_id,
+            t.exam_start as raw_exam_start,
+            DATE_FORMAT(t.registration_start, '%Y-%m-%dT%H:%i:%s.000Z') as registration_start,
+            DATE_FORMAT(t.registration_end, '%Y-%m-%dT%H:%i:%s.000Z') as registration_end,
+            DATE_FORMAT(t.exam_start, '%Y-%m-%dT%H:%i:%s.000Z') as exam_start,
+            DATE_FORMAT(t.exam_end, '%Y-%m-%dT%H:%i:%s.000Z') as exam_end,
+            t.duration, t.total_questions, t.total_marks, t.max_participants,
+            t.is_free, t.prize, t.grade, t.tab_switch_limit, t.screenshot_block, t.status, t.created_at,
             tl.name as level_name,
             s.name as subject_name,
             u.name as instructor_name,
@@ -290,7 +316,7 @@ exports.getInstructorTournaments = async (req, res) => {
             params.push(subject_id);
         }
 
-        query += ' ORDER BY t.exam_start DESC';
+        query += ' ORDER BY raw_exam_start DESC';
 
         const [tournaments] = await db.query(query, params);
 
@@ -330,7 +356,14 @@ exports.getStudentTournaments = async (req, res) => {
 
         // Get tournaments from instructors of the same grade
         let query = `
-            SELECT DISTINCT t.*,
+            SELECT DISTINCT t.id, t.name, t.description, t.level_id, t.subject_id, t.instructor_id,
+            t.exam_start as raw_exam_start,
+            DATE_FORMAT(t.registration_start, '%Y-%m-%dT%H:%i:%s.000Z') as registration_start,
+            DATE_FORMAT(t.registration_end, '%Y-%m-%dT%H:%i:%s.000Z') as registration_end,
+            DATE_FORMAT(t.exam_start, '%Y-%m-%dT%H:%i:%s.000Z') as exam_start,
+            DATE_FORMAT(t.exam_end, '%Y-%m-%dT%H:%i:%s.000Z') as exam_end,
+            t.duration, t.total_questions, t.total_marks, t.max_participants,
+            t.is_free, t.prize, t.grade, t.tab_switch_limit, t.screenshot_block, t.status, t.created_at,
             tl.name as level_name,
             s.name as subject_name,
             u.name as instructor_name,
@@ -362,7 +395,7 @@ exports.getStudentTournaments = async (req, res) => {
             params.push(level_id);
         }
 
-        query += ' ORDER BY t.exam_start ASC';
+        query += ' ORDER BY raw_exam_start ASC';
 
         const [tournaments] = await db.query(query, params);
 
@@ -388,7 +421,13 @@ exports.getTournamentById = async (req, res) => {
 
     try {
         const [tournaments] = await db.query(
-            `SELECT t.*,
+            `SELECT t.id, t.name, t.description, t.level_id, t.subject_id, t.instructor_id,
+            DATE_FORMAT(t.registration_start, '%Y-%m-%dT%H:%i:%s.000Z') as registration_start,
+            DATE_FORMAT(t.registration_end, '%Y-%m-%dT%H:%i:%s.000Z') as registration_end,
+            DATE_FORMAT(t.exam_start, '%Y-%m-%dT%H:%i:%s.000Z') as exam_start,
+            DATE_FORMAT(t.exam_end, '%Y-%m-%dT%H:%i:%s.000Z') as exam_end,
+            t.duration, t.total_questions, t.total_marks, t.max_participants,
+            t.questions, t.is_free, t.prize, t.grade, t.tab_switch_limit, t.screenshot_block, t.status, t.created_at,
             tl.name as level_name,
             tl.category as level_category,
             s.name as subject_name,
@@ -453,7 +492,10 @@ exports.registerForTournament = async (req, res) => {
     try {
         // Get tournament details
         const [tournaments] = await db.query(
-            'SELECT * FROM tournaments WHERE id = ?',
+            `SELECT id, registration_start, registration_end, grade, max_participants, 
+             DATE_FORMAT(registration_start, '%Y-%m-%dT%H:%i:%s.000Z') as registration_start_iso,
+             DATE_FORMAT(registration_end, '%Y-%m-%dT%H:%i:%s.000Z') as registration_end_iso
+             FROM tournaments WHERE id = ?`,
             [tournamentId]
         );
 
@@ -463,8 +505,8 @@ exports.registerForTournament = async (req, res) => {
 
         const tournament = tournaments[0];
         const now = new Date();
-        const regStart = new Date(tournament.registration_start);
-        const regEnd = new Date(tournament.registration_end);
+        const regStart = new Date(tournament.registration_start_iso);
+        const regEnd = new Date(tournament.registration_end_iso);
 
         // Check registration window
         if (now < regStart) {
@@ -602,7 +644,10 @@ exports.startTournamentExam = async (req, res) => {
     try {
         // Get tournament details
         const [tournaments] = await db.query(
-            'SELECT * FROM tournaments WHERE id = ?',
+            `SELECT *, 
+             DATE_FORMAT(exam_start, '%Y-%m-%dT%H:%i:%s.000Z') as exam_start_iso,
+             DATE_FORMAT(exam_end, '%Y-%m-%dT%H:%i:%s.000Z') as exam_end_iso
+             FROM tournaments WHERE id = ?`,
             [tournamentId]
         );
 
@@ -612,8 +657,8 @@ exports.startTournamentExam = async (req, res) => {
 
         const tournament = tournaments[0];
         const now = new Date();
-        const examStart = new Date(tournament.exam_start);
-        const examEnd = new Date(tournament.exam_end);
+        const examStart = new Date(tournament.exam_start_iso);
+        const examEnd = new Date(tournament.exam_end_iso);
         // Check exam timing
         if (now < examStart) {
             return res.status(400).json({ message: 'Exam has not started yet' });
