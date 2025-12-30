@@ -215,6 +215,11 @@ io.on('connection', (socket) => {
     socket.on('request_screen_share', (data) => { io.to(String(data.classId)).emit('receive_screen_share_request', data); });
     socket.on('approve_screen_share', (data) => { io.to(String(data.classId)).emit('screen_share_approved', data); });
     socket.on('lower_all_hands', (classId) => { io.to(String(classId)).emit('all_hands_lowered'); });
+    socket.on('violation_report', (data) => {
+        console.warn(`[Security] Violation detected: User ${data.studentName} (${data.studentId}) in Class ${data.classId} - Type: ${data.type}`);
+        // Notify instructor (optional, but good for real-time monitoring)
+        socket.to(String(data.classId)).emit('student_violation', data);
+    });
 
     // --- Mute/Unmute Logic with Permission Tracking ---
     socket.on('admin_mute_student', (data) => {
