@@ -87,8 +87,14 @@ exports.submitExam = async (req, res) => {
 
         const exam = exams[0];
 
-        // 2. Check Expiry
-        if (exam.expiry_date && new Date() > new Date(exam.expiry_date)) {
+        // 2. Check Start Time & Expiry
+        const now = new Date();
+        const examDate = new Date(exam.date);
+        if (now < examDate) {
+            return res.status(403).json({ message: 'This exam has not started yet' });
+        }
+
+        if (exam.expiry_date && now > new Date(exam.expiry_date)) {
             return res.status(403).json({ message: 'This exam has expired' });
         }
 
