@@ -311,6 +311,7 @@ exports.startImmediateClass = async (req, res) => {
         // Emit Socket Event for real-time dashboard updates
         if (req.app.locals.io) {
             req.app.locals.io.emit('class_live', { classId, status: 'live' });
+            req.app.locals.io.emit('global_sync', { type: 'classes', action: 'start', id: classId });
         }
 
         res.status(201).json({

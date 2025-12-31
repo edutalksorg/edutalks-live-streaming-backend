@@ -1,9 +1,23 @@
+const formatDateForMySQL = (dateStr) => {
+    if (!dateStr) return null;
+    try {
+        const date = new Date(dateStr);
+        if (isNaN(date.getTime())) {
+            if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(dateStr)) return dateStr;
+            return null;
+        }
+        return date.toISOString().slice(0, 19).replace('T', ' ');
+    } catch (e) {
+        return null;
+    }
+};
+
 exports.createExam = async (req, res) => {
-    const { title, description, date, duration, total_marks, questions, instructor_id, subject_id, type, allow_upload } = req.body;
+    const { title, description, date, duration, total_marks, questions, instructor_id, subject_id, type, allow_upload, expiry_date } = req.body;
     try {
         await req.app.locals.db.query(
-            'INSERT INTO exams (title, description, date, duration, total_marks, questions, instructor_id, subject_id, type, allow_upload) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            [title, description, date, duration, total_marks, JSON.stringify(questions), instructor_id, subject_id, type || 'normal', allow_upload || false]
+            'INSERT INTO exams (title, description, date, duration, total_marks, questions, instructor_id, subject_id, type, allow_upload, expiry_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [title, description, formatDateForMySQL(date), duration, total_marks, JSON.stringify(questions), instructor_id, subject_id, type || 'normal', allow_upload || false, formatDateForMySQL(expiry_date)]
         );
         // Emit global sync event
         const io = req.app.locals.io;
@@ -20,7 +34,12 @@ exports.createExam = async (req, res) => {
 
 exports.getExams = async (req, res) => {
     try {
-        const [exams] = await req.app.locals.db.query('SELECT * FROM exams ORDER BY date DESC');
+        const [exams] = await req.app.locals.db.query(`
+            SELECT *, 
+            DATE_FORMAT(date, '%Y-%m-%dT%H:%i:%s.000Z') as date,
+            DATE_FORMAT(expiry_date, '%Y-%m-%dT%H:%i:%s.000Z') as expiry_date
+            FROM exams ORDER BY date DESC
+        `);
         res.json(exams);
     } catch (err) {
         res.status(500).json({ message: 'Server error' });
@@ -38,6 +57,8 @@ exports.getStudentExams = async (req, res) => {
         const [exams] = await db.query(`
             SELECT 
                 e.*, 
+                DATE_FORMAT(e.date, '%Y-%m-%dT%H:%i:%s.000Z') as date,
+                DATE_FORMAT(e.expiry_date, '%Y-%m-%dT%H:%i:%s.000Z') as expiry_date,
                 s.name as subject_name,
                 MAX(es.score) as achieved_score,
                 (SELECT id FROM exam_submissions WHERE exam_id = e.id AND student_id = ? ORDER BY submitted_at DESC LIMIT 1) as submission_id,
@@ -63,7 +84,12 @@ exports.getStudentExams = async (req, res) => {
 exports.getExamById = async (req, res) => {
     const { id } = req.params;
     try {
-        const [exams] = await req.app.locals.db.query('SELECT * FROM exams WHERE id = ?', [id]);
+        const [exams] = await req.app.locals.db.query(`
+            SELECT *,
+            DATE_FORMAT(date, '%Y-%m-%dT%H:%i:%s.000Z') as date,
+            DATE_FORMAT(expiry_date, '%Y-%m-%dT%H:%i:%s.000Z') as expiry_date
+            FROM exams WHERE id = ?
+        `, [id]);
         if (exams.length === 0) return res.status(404).json({ message: 'Exam not found' });
         res.json(exams[0]);
     } catch (err) {

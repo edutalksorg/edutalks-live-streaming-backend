@@ -119,6 +119,9 @@ exports.createTournament = async (req, res) => {
 
         const tournamentId = result.insertId;
 
+        const io = req.app.locals.io;
+        io.emit('global_sync', { type: 'tournaments', action: 'create' });
+
         res.status(201).json({
             message: 'Tournament created successfully',
             tournamentId
@@ -204,6 +207,9 @@ exports.updateTournament = async (req, res) => {
             notificationService.scheduleNotifications(tournamentId, db);
         }
 
+        const io = req.app.locals.io;
+        io.emit('global_sync', { type: 'tournaments', action: 'update', id: tournamentId });
+
         res.json({ message: 'Tournament updated successfully' });
     } catch (err) {
         console.error('Update Tournament Error:', err);
@@ -249,6 +255,9 @@ exports.deleteTournament = async (req, res) => {
         }
 
         await db.query('DELETE FROM tournaments WHERE id = ?', [tournamentId]);
+
+        const io = req.app.locals.io;
+        io.emit('global_sync', { type: 'tournaments', action: 'delete', id: tournamentId });
 
         res.json({ message: 'Tournament deleted successfully' });
     } catch (err) {

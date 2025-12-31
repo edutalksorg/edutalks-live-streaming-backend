@@ -324,6 +324,7 @@ exports.startImmediateClass = async (req, res) => {
         // Emit Socket Event for real-time dashboard updates
         if (req.app.locals.io) {
             req.app.locals.io.emit('si_class_live', { classId, status: 'live' });
+            req.app.locals.io.emit('global_sync', { type: 'classes', action: 'start', id: classId });
         }
 
         res.status(201).json({
@@ -356,6 +357,10 @@ exports.updateClass = async (req, res) => {
             [title, description, start_time, duration, subject_id || null, id]
         );
 
+        if (req.app.locals.io) {
+            req.app.locals.io.emit('global_sync', { type: 'classes', action: 'update', id: id });
+        }
+
         res.json({ message: 'Class updated successfully' });
     } catch (err) {
         console.error(err);
@@ -378,6 +383,10 @@ exports.deleteClass = async (req, res) => {
         if (classes[0].status === 'live') return res.status(400).json({ message: 'Cannot delete a live class' });
 
         await db.query('DELETE FROM super_instructor_classes WHERE id = ?', [id]);
+
+        if (req.app.locals.io) {
+            req.app.locals.io.emit('global_sync', { type: 'classes', action: 'delete', id: id });
+        }
 
         res.json({ message: 'Class deleted successfully' });
     } catch (err) {

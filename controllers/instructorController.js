@@ -1,3 +1,17 @@
+const formatDateForMySQL = (dateStr) => {
+    if (!dateStr) return null;
+    try {
+        const date = new Date(dateStr);
+        if (isNaN(date.getTime())) {
+            if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(dateStr)) return dateStr;
+            return null;
+        }
+        return date.toISOString().slice(0, 19).replace('T', ' ');
+    } catch (e) {
+        return null;
+    }
+};
+
 const instructorController = {
     getDashboard: async (req, res) => {
         try {
@@ -81,7 +95,10 @@ const instructorController = {
             const instructorId = req.user.id;
 
             const [exams] = await db.query(
-                `SELECT e.*, s.name as subject_name 
+                `SELECT e.*, 
+                 DATE_FORMAT(e.date, '%Y-%m-%dT%H:%i:%s.000Z') as date,
+                 DATE_FORMAT(e.expiry_date, '%Y-%m-%dT%H:%i:%s.000Z') as expiry_date,
+                 s.name as subject_name 
                  FROM exams e 
                  LEFT JOIN subjects s ON e.subject_id = s.id 
                  WHERE e.instructor_id = ? 
@@ -112,8 +129,11 @@ const instructorController = {
             const [result] = await db.query(
                 `INSERT INTO exams (title, instructor_id, subject_id, date, expiry_date, duration, questions, total_marks, type, attempts_allowed) 
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [title, instructorId, subject_id, date, expiry_date, duration, JSON.stringify(questions), total_marks, type, attempts_allowed || 1]
+                [title, instructorId, subject_id, formatDateForMySQL(date), formatDateForMySQL(expiry_date), duration, JSON.stringify(questions), total_marks, type, attempts_allowed || 1]
             );
+
+            const io = req.app.locals.io;
+            io.emit('global_sync', { type: 'exams', action: 'create' });
 
             res.json({ message: 'Exam created successfully', examId: result.insertId });
         } catch (err) {
@@ -133,7 +153,9 @@ const instructorController = {
             if (!exam.length) return res.status(403).json({ message: 'Unauthorized / Exam not found' });
 
             const [submissions] = await db.query(
-                `SELECT es.*, u.name as student_name, u.email as student_email, sr.review_text, sr.score as reviewed_score, sr.reviewed_at,
+                `SELECT es.*, 
+                       DATE_FORMAT(es.submitted_at, '%Y-%m-%dT%H:%i:%s.000Z') as submitted_at,
+                       u.name as student_name, u.email as student_email, sr.review_text, sr.score as reviewed_score, sr.reviewed_at,
                        (SELECT COUNT(*) FROM exam_submissions es2 WHERE es2.exam_id = es.exam_id AND es2.student_id = es.student_id AND es2.submitted_at <= es.submitted_at) as attempt_number
                  FROM exam_submissions es
                  JOIN users u ON es.student_id = u.id
@@ -191,6 +213,9 @@ const instructorController = {
                 [title, filePath, instructorId, subject_id]
             );
 
+            const io = req.app.locals.io;
+            io.emit('global_sync', { type: 'notes', action: 'upload' });
+
             res.json({ message: 'Material uploaded successfully' });
         } catch (err) {
             console.error(err);
@@ -209,8 +234,11 @@ const instructorController = {
                 `UPDATE exams SET title = ?, date = ?, expiry_date = ?, duration = ?, questions = ?, 
                  total_marks = ?, type = ?, subject_id = ?, allow_upload = ?, attempts_allowed = ? 
                  WHERE id = ? AND instructor_id = ?`,
-                [title, date, expiry_date, duration, JSON.stringify(questions), total_marks, type, subject_id, allow_upload, attempts_allowed || 1, id, instructorId]
+                [title, formatDateForMySQL(date), formatDateForMySQL(expiry_date), duration, JSON.stringify(questions), total_marks, type, subject_id, allow_upload, attempts_allowed || 1, id, instructorId]
             );
+
+            const io = req.app.locals.io;
+            io.emit('global_sync', { type: 'exams', action: 'update', id: id });
 
             res.json({ message: 'Exam updated successfully' });
         } catch (err) {
@@ -226,6 +254,9 @@ const instructorController = {
             const { id } = req.params;
 
             await db.query('DELETE FROM exams WHERE id = ? AND instructor_id = ?', [id, instructorId]);
+            const io = req.app.locals.io;
+            io.emit('global_sync', { type: 'exams', action: 'delete', id: id });
+
             res.json({ message: 'Exam deleted successfully' });
         } catch (err) {
             console.error(err);
@@ -257,7 +288,8 @@ const instructorController = {
 
             const [results] = await db.query(`
                 SELECT es.id as submission_id, e.title as exam_title, es.score as auto_score, 
-                       es.submitted_at, sr.score as reviewed_score, sr.review_text,
+                       DATE_FORMAT(es.submitted_at, '%Y-%m-%dT%H:%i:%s.000Z') as submitted_at,
+                       sr.score as reviewed_score, sr.review_text,
                        e.total_marks
                 FROM exam_submissions es
                 JOIN exams e ON es.exam_id = e.id
