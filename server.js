@@ -4,6 +4,8 @@ const mysql = require('mysql2/promise');
 const dotenv = require('dotenv');
 const { createServer } = require('http');
 const { Server } = require('socket.io');
+const path = require('path');
+const fs = require('fs');
 
 dotenv.config();
 
@@ -93,8 +95,18 @@ async function startServer() {
         startTournamentStatusService(pool);
 
         // 4. Configure Routes
-        // Serve uploaded files
-        app.use('/uploads', express.static('uploads'));
+        // Ensure upload directories exist
+        const uploadDirs = ['uploads', 'uploads/notes', 'uploads/exams'];
+        uploadDirs.forEach(dir => {
+            const fullPath = path.join(__dirname, dir);
+            if (!fs.existsSync(fullPath)) {
+                fs.mkdirSync(fullPath, { recursive: true });
+                console.log(`✓ Created directory: ${dir}`);
+            }
+        });
+
+        // Serve uploaded files with absolute path for reliability
+        app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
         app.use('/api/auth', authRoutes);
         app.use('/api/users', userRoutes);
