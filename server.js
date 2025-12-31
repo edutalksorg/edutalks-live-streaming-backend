@@ -246,6 +246,7 @@ io.on('connection', (socket) => {
 
     socket.on('admin_unlock_all', (data) => {
         // Unlock all mics - restore permission to everyone
+        io.to(String(data.classId)).emit('audio_status', { locked: false });
         io.to(String(data.classId)).emit('unlock_all_mics');
     });
 
