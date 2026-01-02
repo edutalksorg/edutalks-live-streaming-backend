@@ -13,7 +13,8 @@ const app = express();
 const httpServer = createServer(app);
 const allowedOrigins = [
     process.env.FRONTEND_URL,
-    "http://localhost:5173"
+    "http://localhost:3000","https://www.eduwallah.work.gd"
+    
 ].filter(Boolean);
 
 const corsOptions = {
