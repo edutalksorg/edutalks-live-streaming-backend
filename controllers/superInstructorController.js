@@ -13,7 +13,17 @@ const superInstructorController = {
 
             // 2. Get Class Name
             const [classes] = await db.query('SELECT name FROM classes WHERE id = ?', [classId]);
-            const className = classes[0].name;
+            let className = classes[0].name;
+
+            // Fix for truncated Grade names (e.g. "🧠 Artificial Intelli")
+            // Try to find a matching full subject name
+            const cleanName = className.replace(/[^a-zA-Z0-9\s]/g, '').trim();
+            if (cleanName.length > 3) {
+                const [fuzzyMatch] = await db.query('SELECT name FROM subjects WHERE name LIKE ? LIMIT 1', [`%${cleanName}%`]);
+                if (fuzzyMatch.length > 0) {
+                    className = fuzzyMatch[0].name; // Use full name "Artificial Intelligence"
+                }
+            }
 
             // 3. Stats
             // Total Students in this Grade (only active students, no duplicates)
@@ -295,12 +305,14 @@ const superInstructorController = {
             const [classInfo] = await db.query('SELECT name FROM classes WHERE id = ?', [classId]);
             const grade = classInfo[0].name;
 
-            // Get all active students in this grade
+            // Get all active students in this grade who are ELIGIBLE for this subject
+            // Eligible means: selected_subject_id IS NULL OR selected_subject_id = subjectId
             const [allStudents] = await db.query(
                 `SELECT u.id FROM users u 
                  JOIN roles r ON u.role_id = r.id 
-                 WHERE r.name = 'student' AND u.grade = ? AND u.is_active = 1 AND u.plan_name != 'Free'`,
-                [grade]
+                 WHERE r.name = 'student' AND u.grade = ? AND u.is_active = 1 AND u.plan_name != 'Free'
+                 AND (u.selected_subject_id IS NULL OR u.selected_subject_id = ?)`,
+                [grade, subjectId]
             );
 
             // 3. Find Unassigned Students for this Subject

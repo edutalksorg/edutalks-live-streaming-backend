@@ -83,16 +83,26 @@ exports.verifyPayment = async (req, res) => {
 
             // 3. Auto-Allocate Student to Batches
             try {
-                // Get student's grade
-                const [userInfo] = await db.query('SELECT grade FROM users WHERE id = ?', [userId]);
+                // Get student's grade and selected course
+                const [userInfo] = await db.query('SELECT grade, selected_subject_id FROM users WHERE id = ?', [userId]);
                 if (userInfo.length > 0 && userInfo[0].grade) {
                     const grade = userInfo[0].grade;
+                    const selectedSubjectId = userInfo[0].selected_subject_id;
 
-                    // Get all subjects for this grade
-                    const [subjects] = await db.query(`
+                    // Get subjects: If selectedSubjectId is present, ONLY get that subject.
+                    // Otherwise, get all subjects for the grade (for school students).
+                    let subjectQuery = `
                         SELECT s.id FROM subjects s 
                         WHERE s.grade = ? OR s.class_id = (SELECT id FROM classes WHERE name = ?)
-                    `, [grade, grade]);
+                    `;
+                    let subjectParams = [grade, grade];
+
+                    if (selectedSubjectId) {
+                        subjectQuery += ' AND s.id = ?';
+                        subjectParams.push(selectedSubjectId);
+                    }
+
+                    const [subjects] = await db.query(subjectQuery, subjectParams);
 
                     for (const subject of subjects) {
                         // Check if student is already assigned to a batch for this subject
@@ -121,7 +131,7 @@ exports.verifyPayment = async (req, res) => {
                             }
                         }
                     }
-                    console.log(`[AutoAllocation] Allocated student ${userId} to batches for grade ${grade}`);
+                    console.log(`[AutoAllocation] Allocated student ${userId} to batches for grade ${grade} (Specific Subject: ${selectedSubjectId || 'All'})`);
                 }
             } catch (allocErr) {
                 console.error('[AutoAllocation] Error during auto-allocation:', allocErr);

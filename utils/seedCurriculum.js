@@ -3,31 +3,41 @@ require('dotenv').config();
 
 const curriculum = {
     classes: [
-        '6th', '7th', '8th', '9th', '10th',
-        '11th',
-        '12th'
+        // School Education
+        '6th Class', '7th Class', '8th Class', '9th Class', '10th Class',
+        '11th Class', '12th Class',
+
+        // Professional Courses (UG/PG)
+        'Artificial Intelligence and Machine Learning',
+        'Data Science and Analytics',
+        'Python Full Stack Development',
+        'Java Full Stack Development',
+        'Web Development',
+        'Cloud Computing and DevOps',
+        'Cyber Security and Networking',
+        'C Programming',
+        'C++ Programming',
+        'Data Structures and Algorithms'
     ],
 
     subjects: {
-        '6th': [
+        // School Education Subjects
+        '6th Class': [
             'Mathematics', 'Science', 'Social Studies',
             'English', 'Telugu', 'Hindi', 'Sanskrit',
             'Olympiad Foundation', 'NTSE Foundation'
         ],
-
-        '7th': [
+        '7th Class': [
             'Mathematics', 'Science', 'Social Studies',
             'English', 'Telugu', 'Hindi', 'Sanskrit',
             'Olympiad Foundation', 'NTSE Foundation'
         ],
-
-        '8th': [
+        '8th Class': [
             'Mathematics', 'Science', 'Social Studies',
             'English', 'Telugu', 'Hindi', 'Sanskrit',
             'Olympiad Foundation', 'NTSE Foundation'
         ],
-
-        '9th': [
+        '9th Class': [
             'Mathematics',
             'Physical Science',
             'Biological Science',
@@ -35,8 +45,7 @@ const curriculum = {
             'English', 'Telugu', 'Hindi', 'Sanskrit',
             'NTSE', 'Olympiad', 'IIT/NEET Foundation'
         ],
-
-        '10th': [
+        '10th Class': [
             'Mathematics',
             'Physical Science',
             'Biological Science',
@@ -45,8 +54,7 @@ const curriculum = {
             'NTSE', 'Olympiad', 'IIT/NEET Foundation',
             'Polytechnic CET'
         ],
-
-        '11th': [
+        '11th Class': [
             'Mathematics 1A', 'Mathematics 1B',
             'Physics', 'Chemistry',
             'Botany', 'Zoology',
@@ -54,8 +62,7 @@ const curriculum = {
             'English',
             'JEE Mains', 'NEET', 'TS EAMCET', 'NDA'
         ],
-
-        '12th': [
+        '12th Class': [
             'Mathematics 2A', 'Mathematics 2B',
             'Physics', 'Chemistry',
             'Botany', 'Zoology',
@@ -63,7 +70,19 @@ const curriculum = {
             'English',
             'JEE Mains & Advanced', 'NEET',
             'TS EAMCET', 'NDA', 'CUET'
-        ]
+        ],
+
+        // Professional Courses (One Stream = One Subject Mapping)
+        'Artificial Intelligence and Machine Learning': ['Artificial Intelligence and Machine Learning'],
+        'Data Science and Analytics': ['Data Science and Analytics'],
+        'Python Full Stack Development': ['Python Full Stack Development'],
+        'Java Full Stack Development': ['Java Full Stack Development'],
+        'Web Development': ['Web Development'],
+        'Cloud Computing and DevOps': ['Cloud Computing and DevOps'],
+        'Cyber Security and Networking': ['Cyber Security and Networking'],
+        'C Programming': ['C Programming'],
+        'C++ Programming': ['C++ Programming'],
+        'Data Structures and Algorithms': ['Data Structures and Algorithms']
     }
 };
 

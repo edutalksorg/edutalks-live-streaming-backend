@@ -56,7 +56,6 @@ exports.createClass = async (req, res) => {
             }
         }
 
-        // Emit global sync event
         if (req.app.locals.io) {
             req.app.locals.io.emit('global_sync', { type: 'classes', action: 'create' });
         }
@@ -65,6 +64,40 @@ exports.createClass = async (req, res) => {
     } catch (err) {
         console.error(err);
         res.status(500).json({ message: 'Server error' });
+    }
+};
+
+exports.getCurriculumClasses = async (req, res) => {
+    try {
+        const db = req.app.locals.db;
+        const [classes] = await db.query('SELECT name FROM classes ORDER BY id');
+        res.json(classes);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'Server error fetching curriculum' });
+    }
+};
+
+exports.getSubjectsByClass = async (req, res) => {
+    try {
+        const db = req.app.locals.db;
+        const { className } = req.params;
+
+        // Handle URL encoding just in case, though express usually handles it
+        const gradeName = decodeURIComponent(className);
+
+        const [subjects] = await db.query(`
+            SELECT s.id, s.name 
+            FROM subjects s
+            JOIN classes c ON s.class_id = c.id
+            WHERE c.name = ?
+            ORDER BY s.name ASC
+        `, [gradeName]);
+
+        res.json(subjects);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'Server error fetching subjects' });
     }
 };
 

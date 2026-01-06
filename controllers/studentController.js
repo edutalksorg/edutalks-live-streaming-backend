@@ -4,10 +4,40 @@ const studentController = {
             const db = req.app.locals.db;
             const studentId = req.user.id;
 
-            // 1. Get Student's Grade
-            const [users] = await db.query('SELECT grade FROM users WHERE id = ?', [studentId]);
+            // 1. Get Student's Grade & Selected Course
+            const [users] = await db.query(`
+                SELECT u.grade, u.selected_subject_id, s.name as course_name 
+                FROM users u
+                LEFT JOIN subjects s ON u.selected_subject_id = s.id
+                WHERE u.id = ?
+            `, [studentId]);
+
             if (users.length === 0) return res.status(404).json({ message: 'Student not found' });
-            const grade = users[0].grade;
+            let grade = users[0].grade;
+            let courseName = users[0].course_name;
+            console.log('[getDashboard] User data:', users[0]);
+
+            // Fallback: If map by ID failed, try matching by Name (Fuzzy)
+            if (!courseName && grade) {
+                try {
+                    const cleanGrade = grade.replace(/[^a-zA-Z0-9\s]/g, '').trim();
+                    if (cleanGrade.length > 3) { // Avoid over-matching short strings
+                        console.log(`[getDashboard] Attempting fuzzy match for grade: "${cleanGrade}"`);
+                        const [fuzzyMatch] = await db.query(`
+                            SELECT name FROM subjects 
+                            WHERE name LIKE ? OR grade LIKE ? 
+                            LIMIT 1
+                        `, [`%${cleanGrade}%`, `%${cleanGrade}%`]);
+
+                        if (fuzzyMatch.length > 0) {
+                            courseName = fuzzyMatch[0].name;
+                            console.log(`[getDashboard] Fuzzy match found: "${courseName}"`);
+                        }
+                    }
+                } catch (e) {
+                    console.error("[getDashboard] Fuzzy match error:", e);
+                }
+            }
 
             // 2. Get Stats (Strictly Batch-Specific and Expiry-Aware)
             const [classesCount] = await db.query(`
@@ -146,6 +176,7 @@ const studentController = {
 
             res.json({
                 grade,
+                course_name: courseName,
                 stats: {
                     liveNow: (classesCount[0].count || 0) + (liveTournamentsCount[0].count || 0),
                     upcomingExams: (examsCount[0].count || 0) + (upcomingTournamentsCount[0].count || 0),
@@ -170,11 +201,36 @@ const studentController = {
 
             // 1. Get User Details
             const [users] = await db.query(`
-                SELECT id, name, email, phone, grade, plan_name, subscription_expires_at, created_at 
-                FROM users WHERE id = ?
+                SELECT u.id, u.name, u.email, u.phone, u.grade, u.plan_name, u.subscription_expires_at, u.created_at,
+                       s.name as course_name
+                FROM users u
+                LEFT JOIN subjects s ON u.selected_subject_id = s.id
+                WHERE u.id = ?
             `, [studentId]);
 
+            console.log('[getProfile] Fetched user:', users[0]);
+
             if (users.length === 0) return res.status(404).json({ message: 'User not found' });
+
+            let user = users[0];
+            // Fallback: Fuzzy match course name if missing
+            if (!user.course_name && user.grade) {
+                try {
+                    const cleanGrade = user.grade.replace(/[^a-zA-Z0-9\s]/g, '').trim();
+                    if (cleanGrade.length > 3) {
+                        const [fuzzyMatch] = await db.query(`
+                            SELECT name FROM subjects 
+                            WHERE name LIKE ? OR grade LIKE ? 
+                            LIMIT 1
+                        `, [`%${cleanGrade}%`, `%${cleanGrade}%`]);
+
+                        if (fuzzyMatch.length > 0) {
+                            user.course_name = fuzzyMatch[0].name;
+                            console.log(`[getProfile] Fuzzy match found: "${user.course_name}"`);
+                        }
+                    }
+                } catch (e) { console.error("Fuzzy match err", e); }
+            }
 
             // 2. Get Payment History
             const [payments] = await db.query(`
@@ -184,7 +240,7 @@ const studentController = {
             `, [studentId]);
 
             res.json({
-                user: users[0],
+                user,
                 payments
             });
 
@@ -235,7 +291,12 @@ const studentController = {
             }
 
             // 2. Get Subjects (Including Assigned Instructor - ONLY if student is in that batch)
-            const [subjects] = await db.query(`
+            const [selectedSub] = await db.query('SELECT selected_subject_id FROM users WHERE id = ?', [studentId]);
+            const selectedSubjectId = selectedSub[0]?.selected_subject_id;
+
+            console.log(`[getSubjectsFull] Student ID: ${studentId}, Selected Subject ID: ${selectedSubjectId}, Grade: ${grade}`);
+
+            let subjectQuery = `
                 SELECT s.id, s.name, 
                        (SELECT CASE WHEN u2.is_active = 0 THEN CONCAT(u2.name, ' (Instructor removed)') ELSE u2.name END
                         FROM student_batches sb2
@@ -244,8 +305,37 @@ const studentController = {
                         WHERE sb2.student_id = ? AND b2.subject_id = s.id
                         LIMIT 1) as instructor_name
                 FROM subjects s
-                WHERE s.grade = ? OR s.class_id = (SELECT id FROM classes WHERE name = ? OR name LIKE ?)
-            `, [studentId, grade, grade, `%${grade}%`]);
+            `;
+
+            let subjectParams = [studentId];
+
+            if (selectedSubjectId) {
+                // Specific Course Selection (UG/PG)
+                console.log('[getSubjectsFull] Fetching by Selected Subject ID');
+                subjectQuery += ' WHERE s.id = ?';
+                subjectParams.push(selectedSubjectId);
+            } else {
+                // School Grade Selection
+                console.log(`[getSubjectsFull] Fetching by Grade Fallback: ${grade}`);
+
+                // Truncation/Emoji Fix: 
+                // 1. Remove emojis to get cleaner text
+                const cleanGrade = grade.replace(/[^a-zA-Z0-9\s]/g, '').trim();
+
+                // 2. Use a wider search
+                // Match exact grade OR class linked to grade OR fuzzy match on grade column itself
+                subjectQuery += ' WHERE (s.id = (SELECT id FROM subjects WHERE name LIKE ? LIMIT 1) OR s.grade = ? OR s.class_id = (SELECT id FROM classes WHERE name = ? OR name LIKE ?) OR s.grade LIKE ?)';
+
+                // Update params to include the flexible match
+                // Logic: 
+                // 1. Try to find a subject that matches the grade Name fuzzy (e.g. Grade="AI" -> Subject="AI") -> This handles "Course as Subject"
+                // 2. Normal Grade match
+                subjectParams.push(`%${cleanGrade}%`, grade, grade, `${cleanGrade}%`, `${cleanGrade}%`);
+
+                console.log(`[getSubjectsFull] Fuzzy search enabled for grade: "${grade}" cleaned: "${cleanGrade}"`);
+            }
+
+            const [subjects] = await db.query(subjectQuery, subjectParams);
 
             console.log(`[getSubjectsFull] Found ${subjects.length} subjects`);
 

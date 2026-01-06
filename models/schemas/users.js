@@ -27,6 +27,7 @@ module.exports = {
         { name: 'plan_name', definition: "VARCHAR(50) DEFAULT 'Free'" },
         { name: 'created_at', definition: 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP' },
         { name: 'reset_token', definition: 'VARCHAR(255)' },
-        { name: 'reset_token_expires', definition: 'DATETIME' }
+        { name: 'reset_token_expires', definition: 'DATETIME' },
+        { name: 'selected_subject_id', definition: 'INT NULL' }
     ]
 };
