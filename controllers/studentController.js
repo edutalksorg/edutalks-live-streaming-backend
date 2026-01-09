@@ -51,17 +51,17 @@ const studentController = {
                 SELECT COUNT(*) as count FROM exams e 
                 JOIN batches b ON e.instructor_id = b.instructor_id AND e.subject_id = b.subject_id
                 JOIN student_batches sb ON b.id = sb.batch_id
-                WHERE sb.student_id = ? AND e.date >= CURDATE() AND (e.expiry_date IS NULL OR e.expiry_date >= NOW())
+                WHERE sb.student_id = ? AND e.date >= CURDATE() AND (e.expiry_date IS NULL OR e.expiry_date >= UTC_TIMESTAMP())
             `, [studentId]);
 
             const [liveTournamentsCount] = await db.query(`
                 SELECT COUNT(*) as count FROM tournaments t
-                WHERE t.grade = ? AND (t.status = 'LIVE' OR (t.status = 'UPCOMING' AND t.exam_start <= NOW() AND t.exam_end > NOW()))
+                WHERE t.grade = ? AND (t.status = 'LIVE' OR (t.status = 'UPCOMING' AND t.exam_start <= UTC_TIMESTAMP() AND t.exam_end > UTC_TIMESTAMP()))
             `, [grade]);
 
             const [upcomingTournamentsCount] = await db.query(`
                 SELECT COUNT(*) as count FROM tournaments t
-                WHERE t.grade = ? AND t.status = 'UPCOMING' AND t.exam_start > NOW()
+                WHERE t.grade = ? AND t.status = 'UPCOMING' AND t.exam_start > UTC_TIMESTAMP()
             `, [grade]);
 
             const [notesCount] = await db.query(`
@@ -90,7 +90,7 @@ const studentController = {
                 JOIN student_batches sb ON b.id = sb.batch_id
                 LEFT JOIN subjects s ON lc.subject_id = s.id
                 JOIN users u ON lc.instructor_id = u.id
-                WHERE sb.student_id = ? AND (lc.start_time >= NOW() OR lc.status = "live")
+                WHERE sb.student_id = ? AND (lc.start_time >= UTC_TIMESTAMP() OR lc.status = "live")
                 ORDER BY lc.status = "live" DESC, lc.start_time ASC
                 LIMIT 5
             `, [studentId]);
@@ -104,7 +104,7 @@ const studentController = {
                 WHERE t.grade = ? AND t.status IN ('LIVE', 'UPCOMING')
                 AND (SELECT COUNT(*) FROM tournament_registrations tr WHERE tr.tournament_id = t.id AND tr.student_id = ?) > 0
                 AND NOT EXISTS (SELECT 1 FROM tournament_attempts ta WHERE ta.tournament_id = t.id AND ta.student_id = ?)
-                AND (t.status = 'LIVE' OR (t.status = 'UPCOMING' AND t.exam_start <= NOW() AND t.exam_end > NOW()))
+                AND (t.status = 'LIVE' OR (t.status = 'UPCOMING' AND t.exam_start <= UTC_TIMESTAMP() AND t.exam_end > UTC_TIMESTAMP()))
                 ORDER BY t.status = 'LIVE' DESC, t.exam_start ASC
                 LIMIT 5
             `, [grade, studentId, studentId]);
@@ -174,9 +174,18 @@ const studentController = {
             allResults.sort((a, b) => new Date(b.submitted_at) - new Date(a.submitted_at));
             const recentResults = allResults.slice(0, 5);
 
+            // Construct Branding Name
+            let displayClassName = grade;
+            if ((grade === 'UG' || grade === 'PG') && courseName) {
+                displayClassName = `${grade} - ${courseName}`;
+            } else if (grade && !isNaN(parseFloat(grade))) {
+                displayClassName = `Class ${grade}`;
+            }
+
             res.json({
                 grade,
                 course_name: courseName,
+                displayClassName, // Branding Field
                 stats: {
                     liveNow: (classesCount[0].count || 0) + (liveTournamentsCount[0].count || 0),
                     upcomingExams: (examsCount[0].count || 0) + (upcomingTournamentsCount[0].count || 0),
@@ -315,29 +324,50 @@ const studentController = {
                 subjectQuery += ' WHERE s.id = ?';
                 subjectParams.push(selectedSubjectId);
             } else {
-                // School Grade Selection
-                console.log(`[getSubjectsFull] Fetching by Grade Fallback: ${grade}`);
+                // School Grade Selection or Professional Course Name
+                console.log(`[getSubjectsFull] Fetching by Grade Fallback: "${grade}"`);
 
-                // Truncation/Emoji Fix: 
-                // 1. Remove emojis to get cleaner text
                 const cleanGrade = grade.replace(/[^a-zA-Z0-9\s]/g, '').trim();
 
-                // 2. Use a wider search
-                // Match exact grade OR class linked to grade OR fuzzy match on grade column itself
-                subjectQuery += ' WHERE (s.id = (SELECT id FROM subjects WHERE name LIKE ? LIMIT 1) OR s.grade = ? OR s.class_id = (SELECT id FROM classes WHERE name = ? OR name LIKE ?) OR s.grade LIKE ?)';
+                // Logic Update: Passing Truncated Grade Handling is NO LONGER needed but kept for legacy
+                // We now have full VARCHAR(100) columns.
+                // We use exact matches first, then fallbacks.
 
-                // Update params to include the flexible match
-                // Logic: 
-                // 1. Try to find a subject that matches the grade Name fuzzy (e.g. Grade="AI" -> Subject="AI") -> This handles "Course as Subject"
-                // 2. Normal Grade match
-                subjectParams.push(`%${cleanGrade}%`, grade, grade, `${cleanGrade}%`, `${cleanGrade}%`);
+                subjectQuery += `
+                    WHERE s.class_id = (SELECT id FROM classes WHERE name = ? OR name LIKE ? LIMIT 1) 
+                    OR s.grade = ? 
+                    OR s.grade LIKE ?
+                    OR s.id = (SELECT id FROM subjects WHERE name = ? OR name LIKE ? LIMIT 1)
+                `;
 
-                console.log(`[getSubjectsFull] Fuzzy search enabled for grade: "${grade}" cleaned: "${cleanGrade}"`);
+                // Params: 
+                // 1. Class Name Match (Exact or Pattern)
+                // 2. Class Name Like
+                // 3. Subject Grade exact match
+                // 4. Subject Grade LIKE
+                // 5. Subject Name exact
+                // 6. Subject Name LIKE
+                subjectParams.push(grade, `${grade}%`, grade, `${grade}%`, grade, `${grade}%`);
             }
-
             const [subjects] = await db.query(subjectQuery, subjectParams);
 
-            console.log(`[getSubjectsFull] Found ${subjects.length} subjects`);
+            console.log(`[getSubjectsFull] Found ${subjects.length} subjects for grade "${grade}"`);
+
+            // Group subjects by Name to handle duplicates (Merging)
+            const subjectsByName = {};
+            for (const sub of subjects) {
+                if (!subjectsByName[sub.name]) {
+                    subjectsByName[sub.name] = { ...sub, all_ids: [sub.id] };
+                } else {
+                    subjectsByName[sub.name].all_ids.push(sub.id);
+                    // Keep the ID that has an instructor name if possible
+                    if (!subjectsByName[sub.name].instructor_name && sub.instructor_name) {
+                        subjectsByName[sub.name].instructor_name = sub.instructor_name;
+                        subjectsByName[sub.name].id = sub.id; // Promote this ID as primary
+                    }
+                }
+            }
+            const uniqueSubjects = Object.values(subjectsByName);
 
             // 3. Get Notes for Assigned Batches
             const [notes] = await db.query(`
@@ -369,38 +399,41 @@ const studentController = {
             `, [studentId]);
 
             // 6. Assemble
-            const data = subjects.map(s => ({
-                ...s,
-                notes: notes.filter(n => n.subject_id === s.id),
-                exams: exams.filter(e => e.subject_id === s.id).map(e => {
-                    const studentSubmissions = submissions.filter(su => su.exam_id === e.id);
-                    const bestSubmission = studentSubmissions.find(su => su.status === 'graded') || studentSubmissions[0];
-                    const isExpired = e.expiry_date && new Date(e.expiry_date) < new Date();
+            const data = uniqueSubjects.map(s => {
+                const subjectIds = s.all_ids;
+                return {
+                    ...s,
+                    notes: notes.filter(n => subjectIds.includes(n.subject_id)),
+                    exams: exams.filter(e => subjectIds.includes(e.subject_id)).map(e => {
+                        const studentSubmissions = submissions.filter(su => su.exam_id === e.id);
+                        const bestSubmission = studentSubmissions.find(su => su.status === 'graded') || studentSubmissions[0];
+                        const isExpired = e.expiry_date && new Date(e.expiry_date) < new Date();
 
-                    let status = 'Attempt Now';
-                    if (studentSubmissions.length > 0) {
-                        status = bestSubmission.status === 'graded' ? 'Completed' : 'Pending';
-                    } else if (isExpired) {
-                        status = 'Expired';
-                    }
+                        let status = 'Attempt Now';
+                        if (studentSubmissions.length > 0) {
+                            status = bestSubmission.status === 'graded' ? 'Completed' : 'Pending';
+                        } else if (isExpired) {
+                            status = 'Expired';
+                        }
 
-                    return {
-                        ...e,
-                        status,
-                        score: bestSubmission ? (bestSubmission.reviewed_score !== null ? bestSubmission.reviewed_score : bestSubmission.score) : null,
-                        review_text: bestSubmission ? bestSubmission.review_text : null,
-                        attempts_done: studentSubmissions.length,
-                        is_expired: isExpired,
-                        all_attempts: studentSubmissions.map(sub => ({
-                            id: sub.id,
-                            score: sub.reviewed_score !== null ? sub.reviewed_score : sub.score,
-                            submitted_at: sub.submitted_at,
-                            review_text: sub.review_text,
-                            file_path: sub.file_path
-                        }))
-                    };
-                })
-            }));
+                        return {
+                            ...e,
+                            status,
+                            score: bestSubmission ? (bestSubmission.reviewed_score !== null ? bestSubmission.reviewed_score : bestSubmission.score) : null,
+                            review_text: bestSubmission ? bestSubmission.review_text : null,
+                            attempts_done: studentSubmissions.length,
+                            is_expired: isExpired,
+                            all_attempts: studentSubmissions.map(sub => ({
+                                id: sub.id,
+                                score: sub.reviewed_score !== null ? sub.reviewed_score : sub.score,
+                                submitted_at: sub.submitted_at,
+                                review_text: sub.review_text,
+                                file_path: sub.file_path
+                            }))
+                        };
+                    })
+                };
+            });
 
             // Handle independent items (if any instructor uploaded without subject)
             // For now, we only show subject-linked ones to keep it clean.

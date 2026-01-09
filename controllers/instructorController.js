@@ -18,14 +18,50 @@ const instructorController = {
             const db = req.app.locals.db;
             const instructorId = req.user.id;
 
-            // 1. Get Assigned Batches
+            // 1. Get Assigned Batches & Class Info
             const [batches] = await db.query(
-                `SELECT b.id, b.name, b.student_count, b.subject_id, s.name as subject_name 
+                `SELECT b.id, b.name, b.student_count, b.subject_id, s.name as subject_name, 
+                        c.name as class_name, s.grade 
                  FROM batches b 
                  JOIN subjects s ON b.subject_id = s.id 
+                 JOIN classes c ON s.class_id = c.id
                  WHERE b.instructor_id = ?`,
                 [instructorId]
             );
+
+            // Construct Branding for Instructor (e.g. "Grade 6 Batches" or "UG - B.Tech Batches")
+            // Instructors might teach multiple grades, but visually we just want a main header.
+            // We'll take the distinct list of "Class Name" or "Grade"
+            let distinctClasses = [...new Set(batches.map(b => {
+                // Check if it's UG/PG flow
+                const grade = b.grade || b.class_name;
+                // If the class name looks like "Grade 6", keep it.
+                // If it is "UG", try to see if subject implies a course, but usually batches are specific.
+                // Simple logic: Use the Class Name from the DB.
+                return b.class_name;
+            }))];
+
+            // Refined Logic for UG/PG:
+            // If class_name is 'UG' or 'PG', we might want to append the subject's related course if consistent.
+            // But usually, just "UG" or "Class 5" is enough for the header context.
+            // Let's format it nicely.
+            let displayClassName = distinctClasses.join(', ');
+            if (distinctClasses.length === 1) {
+                const cls = distinctClasses[0];
+                if (!isNaN(parseFloat(cls))) {
+                    displayClassName = `Grade ${cls}`;
+                } else {
+                    // e.g. "UG", "PG"
+                    // If it's UG/PG, we can try to be more specific if all batches share a common "Category" 
+                    // But typically "UG Instructor" is fine. 
+                    // Let's just pass the raw class name if it's not a number.
+                    displayClassName = cls;
+                }
+            } else if (distinctClasses.length === 0) {
+                displayClassName = "No Active Classes";
+            } else {
+                displayClassName = `Multiple Grades (${distinctClasses.length})`;
+            }
 
             // 2. Count Active Exams
             const [exams] = await db.query(
@@ -53,7 +89,8 @@ const instructorController = {
                     pendingReviews: pendingReviews[0].count,
                     classesCount: 0 // Ideally fetch from a live_classes history table
                 },
-                batches
+                batches,
+                displayClassName
             });
         } catch (err) {
             console.error(err);
@@ -303,6 +340,32 @@ const instructorController = {
         } catch (err) {
             console.error("Error in getStudentProgress:", err);
             res.status(500).json({ message: 'Server error fetching student progress' });
+        }
+    },
+
+    // Get instructor's assigned batches with grade and subject information
+    getBatches: async (req, res) => {
+        const instructorId = req.user.id;
+        const db = req.app.locals.db;
+
+        try {
+            const [batches] = await db.query(`
+                SELECT DISTINCT 
+                    b.id as batch_id,
+                    b.subject_id,
+                    s.name as subject_name,
+                    c.name as grade
+                FROM batches b
+                JOIN subjects s ON b.subject_id = s.id
+                JOIN classes c ON s.class_id = c.id
+                WHERE b.instructor_id = ?
+                ORDER BY c.name, s.name
+            `, [instructorId]);
+
+            res.json(batches);
+        } catch (err) {
+            console.error("Error in getBatches:", err);
+            res.status(500).json({ message: 'Server error fetching batches' });
         }
     }
 };

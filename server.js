@@ -13,8 +13,8 @@ const app = express();
 const httpServer = createServer(app);
 const allowedOrigins = [
     process.env.FRONTEND_URL,
-    "http://localhost:5173","https://www.eduwallah.work.gd"
-    
+    "http://localhost:5173", "https://www.eduwallah.work.gd"
+
 ].filter(Boolean);
 
 const corsOptions = {
@@ -92,8 +92,8 @@ async function startServer() {
         const { startNotificationService } = require('./services/notificationService');
         startNotificationService(pool);
 
-        const { startTournamentStatusService } = require('./services/tournamentStatusService');
-        startTournamentStatusService(pool);
+        const { startStatusService } = require('./services/statusService');
+        startStatusService(pool, io);
 
         // 4. Configure Routes
         // Ensure upload directories exist
@@ -141,9 +141,13 @@ async function startServer() {
     }
 }
 
+// In-memory store for room-specific states (recording protection, etc.)
+// In a production environment, this should ideally be in Redis or a DB
+const roomStates = {};
+
 // Socket.IO Logic
 io.on('connection', (socket) => {
-    // ... (Socket logic remains same, it accesses app.locals.db which is set in startServer)
+    // Accesses app.locals.db set in startServer
     console.log('User connected:', socket.id);
 
     socket.on('join_class', async (data) => {
@@ -180,6 +184,29 @@ io.on('connection', (socket) => {
                     role: s.role
                 })).filter(u => u.userId);
                 socket.emit('current_users', members);
+
+                // Sync current states for the room to the new joiner
+                if (roomStates[room]) {
+                    const state = roomStates[room];
+                    if (state.recordingProtected !== undefined) {
+                        socket.emit('recording_protection_status', { active: state.recordingProtected });
+                    }
+                    if (state.whiteboardVisible !== undefined) {
+                        socket.emit('whiteboard_visibility', { show: state.whiteboardVisible });
+                    }
+                    if (state.chatLocked !== undefined) {
+                        socket.emit('chat_status', { locked: state.chatLocked });
+                    }
+                    if (state.audioLocked !== undefined) {
+                        socket.emit('audio_status', { locked: state.audioLocked });
+                    }
+                    if (state.videoLocked !== undefined) {
+                        socket.emit('video_status', { locked: state.videoLocked });
+                    }
+                    if (state.screenLocked !== undefined) {
+                        socket.emit('screen_status', { locked: state.screenLocked });
+                    }
+                }
             } catch (err) {
                 console.error("Attendance Log Error:", err);
             }
@@ -212,16 +239,46 @@ io.on('connection', (socket) => {
         io.to(room).emit('receive_message', data);
     });
 
-    socket.on('toggle_chat', (data) => { io.to(String(data.classId)).emit('chat_status', { locked: data.locked }); });
-    socket.on('toggle_audio', (data) => { io.to(String(data.classId)).emit('audio_status', { locked: data.locked }); });
-    socket.on('toggle_video', (data) => { io.to(String(data.classId)).emit('video_status', { locked: data.locked }); });
+    socket.on('toggle_chat', (data) => {
+        const room = String(data.classId);
+        if (!roomStates[room]) roomStates[room] = {};
+        roomStates[room].chatLocked = data.locked;
+        io.to(room).emit('chat_status', { locked: data.locked });
+    });
+    socket.on('toggle_audio', (data) => {
+        const room = String(data.classId);
+        if (!roomStates[room]) roomStates[room] = {};
+        roomStates[room].audioLocked = data.locked;
+        io.to(room).emit('audio_status', { locked: data.locked });
+    });
+    socket.on('toggle_video', (data) => {
+        const room = String(data.classId);
+        if (!roomStates[room]) roomStates[room] = {};
+        roomStates[room].videoLocked = data.locked;
+        io.to(room).emit('video_status', { locked: data.locked });
+    });
     socket.on('raise_hand', (data) => { io.to(String(data.classId)).emit('hand_raised', data); });
     socket.on('lower_hand', (data) => { io.to(String(data.classId)).emit('hand_lowered', data); });
     socket.on('approve_hand', (data) => { io.to(String(data.classId)).emit('hand_approved', data); });
-    socket.on('toggle_screen', (data) => { io.to(String(data.classId)).emit('screen_status', { locked: data.locked }); });
+    socket.on('toggle_screen', (data) => {
+        const room = String(data.classId);
+        if (!roomStates[room]) roomStates[room] = {};
+        roomStates[room].screenLocked = data.locked;
+        io.to(room).emit('screen_status', { locked: data.locked });
+    });
     socket.on('toggle_whiteboard', (data) => { io.to(String(data.classId)).emit('whiteboard_status', { locked: data.locked }); });
-    socket.on('toggle_whiteboard_visibility', (data) => { io.to(String(data.classId)).emit('whiteboard_visibility', { show: data.show }); });
-    socket.on('toggle_recording_protection', (data) => { io.to(String(data.classId)).emit('recording_protection_status', { active: data.active }); });
+    socket.on('toggle_whiteboard_visibility', (data) => {
+        const room = String(data.classId);
+        if (!roomStates[room]) roomStates[room] = {};
+        roomStates[room].whiteboardVisible = data.show;
+        io.to(room).emit('whiteboard_visibility', { show: data.show });
+    });
+    socket.on('toggle_recording_protection', (data) => {
+        const room = String(data.classId);
+        if (!roomStates[room]) roomStates[room] = {};
+        roomStates[room].recordingProtected = data.active;
+        io.to(room).emit('recording_protection_status', { active: data.active });
+    });
     socket.on('whiteboard_draw', (data) => { socket.to(String(data.classId)).emit('whiteboard_draw', data); });
     socket.on('whiteboard_clear', (data) => { socket.to(String(data.classId)).emit('whiteboard_clear'); });
     socket.on('send_reaction', (data) => { io.to(String(data.classId)).emit('receive_reaction', data); });

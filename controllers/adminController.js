@@ -87,15 +87,21 @@ const adminController = {
             // Automatic assignment for Super Instructors
             if (roleName === 'super_instructor' && user.grade) {
                 try {
-                    // Find Class ID
-                    const [classes] = await req.app.locals.db.query('SELECT id FROM classes WHERE name = ?', [user.grade]);
+                    // Find Class ID (Try exact match first, then robust LIKE)
+                    let [classes] = await req.app.locals.db.query('SELECT id FROM classes WHERE name = ?', [user.grade]);
+
+                    if (classes.length === 0) {
+                        const cleanGrade = user.grade.replace(/Academic Ecosystem/gi, '').replace(/[^a-zA-Z0-9\s]/g, '').trim();
+                        [classes] = await req.app.locals.db.query('SELECT id FROM classes WHERE name LIKE ? OR ? LIKE CONCAT(name, "%") LIMIT 1', [`%${cleanGrade}%`, user.grade]);
+                    }
+
                     if (classes.length > 0) {
                         const classId = classes[0].id;
                         await req.app.locals.db.query(
                             'INSERT INTO class_super_instructors (class_id, super_instructor_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE super_instructor_id = VALUES(super_instructor_id)',
                             [classId, user.id]
                         );
-                        console.log(`Auto-assigned Super Instructor ${user.name} to class ${user.grade} (ID: ${classId})`);
+                        console.log(`Auto-assigned Super Instructor ${user.name} to class ID: ${classId} based on grade: ${user.grade}`);
                     }
                 } catch (assignErr) {
                     console.error("Failed to auto-assign Super Instructor to class:", assignErr);

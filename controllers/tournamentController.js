@@ -59,6 +59,9 @@ exports.createTournament = async (req, res) => {
         screenshot_block = false
     } = req.body;
 
+    // Normalize level_id to null if it's missing or empty
+    const normalizedLevelId = (level_id === '' || level_id === null || level_id === undefined) ? null : level_id;
+
     try {
         // Validation: Check date sequence
         const regStart = new Date(registration_start);
@@ -92,15 +95,42 @@ exports.createTournament = async (req, res) => {
             });
         }
 
-        // Developer log for debugging
-        console.log('Create Tournament Body:', { name, registration_start, registration_end, exam_start, exam_end, max_participants });
-
-        // Convert empty string/null/undefined for optional fields
+        // Convert empty string/null/undefined for optional fields (needed for authorization check)
         const subjectIdValue = (subject_id === '' || subject_id === null || subject_id === undefined) ? null : subject_id;
         const maxParticipantsValue = (max_participants === '' || max_participants === null || max_participants === undefined) ? null : max_participants;
         const prizeValue = (prize === '' || prize === null || prize === undefined) ? null : prize;
 
-        console.log('Processed Processed Fields:', { subjectIdValue, maxParticipantsValue, prizeValue });
+        // Authorization: Verify instructor can create tournament for this grade/subject
+        const [instructorBatches] = await db.query(`
+            SELECT DISTINCT s.id as subject_id, c.name as grade
+            FROM batches b
+            JOIN subjects s ON b.subject_id = s.id
+            JOIN classes c ON s.class_id = c.id
+            WHERE b.instructor_id = ?
+        `, [instructorId]);
+
+        if (instructorBatches.length === 0) {
+            return res.status(403).json({
+                message: 'You have no assigned batches. Please contact admin.'
+            });
+        }
+
+        // Check if instructor's assignments match the tournament grade/subject
+        const isAuthorized = instructorBatches.some(batch => {
+            const gradeMatches = batch.grade === grade;
+            const subjectMatches = !subjectIdValue || batch.subject_id == subjectIdValue;
+            return gradeMatches && subjectMatches;
+        });
+
+        if (!isAuthorized) {
+            return res.status(403).json({
+                message: 'You can only create tournaments for your assigned grades and subjects'
+            });
+        }
+
+        // Developer log for debugging
+        console.log('Create Tournament Body:', { name, registration_start, registration_end, exam_start, exam_end, max_participants });
+        console.log('Processed Fields:', { subjectIdValue, maxParticipantsValue, prizeValue });
 
         // Insert tournament
         const [result] = await db.query(
@@ -110,7 +140,7 @@ exports.createTournament = async (req, res) => {
              duration, total_questions, total_marks, max_participants, 
              questions, is_free, prize, grade, tab_switch_limit, screenshot_block, status) 
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT')`,
-            [name, description, level_id, subjectIdValue, instructorId,
+            [name, description, normalizedLevelId, subjectIdValue, instructorId,
                 formatDateForMySQL(registration_start), formatDateForMySQL(registration_end),
                 formatDateForMySQL(exam_start), formatDateForMySQL(exam_end),
                 duration, total_questions, total_marks, maxParticipantsValue,
@@ -127,8 +157,12 @@ exports.createTournament = async (req, res) => {
             tournamentId
         });
     } catch (err) {
-        console.error('Create Tournament Error:', err);
-        res.status(500).json({ message: 'Server error creating tournament' });
+        console.error('Create Tournament Error Detail:', err);
+        res.status(500).json({
+            message: 'Server error creating tournament',
+            error: err.message,
+            code: err.code
+        });
     }
 };
 
@@ -212,8 +246,12 @@ exports.updateTournament = async (req, res) => {
 
         res.json({ message: 'Tournament updated successfully' });
     } catch (err) {
-        console.error('Update Tournament Error:', err);
-        res.status(500).json({ message: 'Server error updating tournament' });
+        console.error('Update Tournament Error Detail:', err);
+        res.status(500).json({
+            message: 'Server error updating tournament',
+            error: err.message,
+            code: err.code
+        });
     }
 };
 
@@ -266,16 +304,13 @@ exports.deleteTournament = async (req, res) => {
     }
 };
 
-/**
- * Get all tournaments for instructor with filters
- */
 exports.getInstructorTournaments = async (req, res) => {
     const db = req.app.locals.db;
     const instructorId = req.user.id;
     const { status, level_id, subject_id } = req.query;
 
     try {
-        // Get instructor's grade to show all tournaments from instructors of the same grade
+        // Get instructor's grade and assigned subjects
         const [instructorData] = await db.query(
             'SELECT grade FROM users WHERE id = ?',
             [instructorId]
@@ -287,7 +322,17 @@ exports.getInstructorTournaments = async (req, res) => {
 
         const instructorGrade = instructorData[0].grade;
 
-        // Show tournaments from ALL instructors of the same grade
+        // Get instructor's assigned subject IDs
+        const [assignedSubjects] = await db.query(`
+            SELECT DISTINCT s.id as subject_id
+            FROM batches b
+            JOIN subjects s ON b.subject_id = s.id
+            WHERE b.instructor_id = ?
+        `, [instructorId]);
+
+        const assignedSubjectIds = assignedSubjects.map(s => s.subject_id);
+
+        // Show tournaments from ALL instructors of the same grade (and subject for UG/PG)
         let query = `
             SELECT t.id, t.name, t.description, t.level_id, t.subject_id, t.instructor_id,
             t.exam_start as raw_exam_start,
@@ -309,6 +354,12 @@ exports.getInstructorTournaments = async (req, res) => {
             `;
 
         const params = [instructorGrade];
+
+        // For UG/PG instructors: Filter by assigned subjects
+        if ((instructorGrade === 'UG' || instructorGrade === 'PG') && assignedSubjectIds.length > 0) {
+            query += ` AND t.subject_id IN (${assignedSubjectIds.map(() => '?').join(',')})`;
+            params.push(...assignedSubjectIds);
+        }
 
         if (status) {
             query += ' AND t.status = ?';
@@ -336,19 +387,15 @@ exports.getInstructorTournaments = async (req, res) => {
     }
 };
 
-/**
- * Get tournaments available to student (only from assigned instructors via batches)
- * KEY REQUIREMENT: Tournaments only visible to students assigned to the instructor
- */
 exports.getStudentTournaments = async (req, res) => {
     const db = req.app.locals.db;
     const studentId = req.user.id;
     const { status, level_id } = req.query;
 
     try {
-        // 1. Get student's grade and subscription plan from users table
+        // 1. Get student's grade, selected_subject_id, and subscription plan from users table
         const [studentData] = await db.query(
-            'SELECT grade, plan_name FROM users WHERE id = ?',
+            'SELECT grade, selected_subject_id, plan_name FROM users WHERE id = ?',
             [studentId]
         );
 
@@ -357,13 +404,18 @@ exports.getStudentTournaments = async (req, res) => {
         }
 
         const studentGrade = studentData[0].grade;
+        const selectedSubjectId = studentData[0].selected_subject_id;
         const planName = studentData[0].plan_name;
 
         // Check if student has a paid subscription (Premium, Pro, etc. - anything NOT 'Free')
-        // We also want to allow tournaments that are explicitly marked as 'is_free' = 1
         const isPaid = planName && planName.toLowerCase() !== 'free';
 
-        // Get tournaments from instructors of the same grade
+        // Filter: If student is NOT paid, they should see NOTHING (per requirement)
+        if (!isPaid) {
+            return res.json([]);
+        }
+
+        // Get tournaments from instructors of the same grade (and subject for UG/PG)
         let query = `
             SELECT DISTINCT t.id, t.name, t.description, t.level_id, t.subject_id, t.instructor_id,
             t.exam_start as raw_exam_start,
@@ -387,12 +439,19 @@ exports.getStudentTournaments = async (req, res) => {
             AND t.status IN('UPCOMING', 'LIVE', 'COMPLETED', 'RESULT_PUBLISHED')
         `;
 
-        if (!isPaid) {
-            // Only show free tournaments for free users
-            query += ' AND t.is_free = 1';
-        }
-
         const params = [studentId, studentId, studentGrade];
+
+        // For UG/PG students: Match BOTH grade AND subject
+        // For School students (6th, 7th, etc.): Match grade only
+        if (studentGrade === 'UG' || studentGrade === 'PG') {
+            if (selectedSubjectId) {
+                query += ' AND t.subject_id = ?';
+                params.push(selectedSubjectId);
+            } else {
+                // UG/PG student without selected subject - show nothing
+                return res.json([]);
+            }
+        }
 
         if (status) {
             query += ' AND t.status = ?';
@@ -407,11 +466,6 @@ exports.getStudentTournaments = async (req, res) => {
         query += ' ORDER BY raw_exam_start ASC';
 
         const [tournaments] = await db.query(query, params);
-
-        // Filter: If student is NOT paid, they should see NOTHING (per requirement)
-        if (!isPaid) {
-            return res.json([]);
-        }
 
         res.json(tournaments);
     } catch (err) {
@@ -710,7 +764,7 @@ exports.startTournamentExam = async (req, res) => {
             await db.query(
                 `INSERT INTO tournament_attempts
                 (tournament_id, student_id, started_at, total_marks, activity_log)
-            VALUES(?, ?, NOW(), ?, '[]')`,
+            VALUES(?, ?, UTC_TIMESTAMP(), ?, '[]')`,
                 [tournamentId, studentId, tournament.total_marks]
             );
         } catch (dbErr) {
@@ -806,7 +860,7 @@ exports.submitTournamentExam = async (req, res) => {
         // Update attempt
         await db.query(
             `UPDATE tournament_attempts 
-             SET answers = ?, score = ?, accuracy = ?, time_taken = ?, submitted_at = NOW()
+             SET answers = ?, score = ?, accuracy = ?, time_taken = ?, submitted_at = UTC_TIMESTAMP()
              WHERE tournament_id = ? AND student_id = ? `,
             [JSON.stringify(answers), Math.round(score), accuracy.toFixed(2), timeTaken, tournamentId, studentId]
         );

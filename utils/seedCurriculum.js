@@ -87,8 +87,9 @@ const curriculum = {
 };
 
 async function seedCurriculum(connection) {
-    const [existing] = await connection.query('SELECT id FROM subjects LIMIT 1');
-    if (existing.length) return;
+    // Check removed to ensure subsequent seeds populate missing data
+    // const [existing] = await connection.query('SELECT id FROM subjects LIMIT 1');
+    // if (existing.length) return;
 
     // Insert Classes
     for (const cls of curriculum.classes) {

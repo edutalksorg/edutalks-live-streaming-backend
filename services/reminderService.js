@@ -15,8 +15,8 @@ const startReminderService = (db) => {
                 LEFT JOIN subjects s ON lc.subject_id = s.id
                 WHERE lc.status = 'scheduled' 
                 AND lc.reminder_sent = FALSE 
-                AND lc.start_time <= DATE_ADD(NOW(), INTERVAL 5 MINUTE)
-                AND lc.start_time > NOW()
+                AND lc.start_time <= DATE_ADD(UTC_TIMESTAMP(), INTERVAL 5 MINUTE)
+                AND lc.start_time > UTC_TIMESTAMP()
             `);
 
             for (const cls of classes) {

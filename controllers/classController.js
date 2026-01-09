@@ -2,6 +2,18 @@ const { v4: uuidv4 } = require('uuid');
 const emailService = require('../services/emailService');
 const agoraService = require('../services/agoraService');
 
+// Helper to convert ISO string to MySQL DATETIME format
+const formatDateForMySQL = (dateStr) => {
+    if (!dateStr) return null;
+    try {
+        const date = new Date(dateStr);
+        if (isNaN(date.getTime())) return null;
+        // Format: YYYY-MM-DD HH:MM:SS
+        return date.toISOString().slice(0, 19).replace('T', ' ');
+    } catch (e) {
+        return null;
+    }
+};
 
 exports.createClass = async (req, res) => {
     const { title, description, start_time, duration, instructor_id, subject_id } = req.body;
@@ -10,10 +22,13 @@ exports.createClass = async (req, res) => {
     // Generate unique channel name for Agora
     const agora_channel = `class_${instructor_id}_${Date.now()}`;
 
+    // Convert ISO datetime to MySQL format
+    const mysqlStartTime = formatDateForMySQL(start_time);
+
     try {
         const [result] = await db.query(
             'INSERT INTO live_classes (title, description, start_time, duration, instructor_id, subject_id, agora_channel) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            [title, description, start_time, duration, instructor_id, subject_id || null, agora_channel]
+            [title, description, mysqlStartTime, duration, instructor_id, subject_id || null, agora_channel]
         );
 
         // Notify Students and Instructor (Strictly Targeted)
@@ -70,7 +85,7 @@ exports.createClass = async (req, res) => {
 exports.getCurriculumClasses = async (req, res) => {
     try {
         const db = req.app.locals.db;
-        const [classes] = await db.query('SELECT name FROM classes ORDER BY id');
+        const [classes] = await db.query('SELECT id, name FROM classes ORDER BY id');
         res.json(classes);
     } catch (err) {
         console.error(err);

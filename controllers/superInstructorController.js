@@ -21,7 +21,17 @@ const superInstructorController = {
             if (cleanName.length > 3) {
                 const [fuzzyMatch] = await db.query('SELECT name FROM subjects WHERE name LIKE ? LIMIT 1', [`%${cleanName}%`]);
                 if (fuzzyMatch.length > 0) {
-                    className = fuzzyMatch[0].name; // Use full name "Artificial Intelligence"
+                    // Update: If it's a professional course, we might want to prefix the Level if known
+                    // But strictly speaking, if the class name in DB is "Artificial Intelligence", 
+                    // and that IS the course, we just return that.
+                    // However, if the key is "UG", we might want "UG - [Course]".
+                    // Current logic replaces "Artificial Intelli" -> "Artificial Intelligence".
+                    // Let's refine:
+                    if (className.includes('UG') || className.includes('PG')) {
+                        className = `${className.substring(0, 2)} - ${fuzzyMatch[0].name}`;
+                    } else {
+                        className = fuzzyMatch[0].name;
+                    }
                 }
             }
 
@@ -46,24 +56,36 @@ const superInstructorController = {
             // 4. Detailed Data: Subjects -> Batches -> Instructors
             const [subjects] = await db.query('SELECT * FROM subjects WHERE class_id = ?', [classId]);
 
-            const detailedSubjects = [];
+            // Group subjects by Name to handle duplicates
+            const subjectsByName = {};
             for (const sub of subjects) {
-                // Get Batches for this subject
+                if (!subjectsByName[sub.name]) {
+                    subjectsByName[sub.name] = { ...sub, all_ids: [sub.id] };
+                } else {
+                    subjectsByName[sub.name].all_ids.push(sub.id);
+                }
+            }
+            const uniqueSubjects = Object.values(subjectsByName);
+
+            const detailedSubjects = [];
+            for (const sub of uniqueSubjects) {
+                // Get Batches for this subject (merged IDs)
                 const [batches] = await db.query(`
                     SELECT b.id, b.name, b.student_count, b.max_students, u.name as instructor_name, u.email as instructor_email, u.id as instructor_id
                     FROM batches b
                     LEFT JOIN users u ON b.instructor_id = u.id
-                    WHERE b.subject_id = ?
+                    WHERE b.subject_id IN (?)
                     ORDER BY b.id ASC
-                `, [sub.id]);
+                `, [sub.all_ids]);
 
-                // Get Qualified Instructors for this subject (who might not have batches yet)
+                // Get Qualified Instructors for this subject (merged IDs)
+                // Distinct because same instructor might be qualified for multiple duplicate subject IDs
                 const [qualifiedInstrs] = await db.query(`
-                    SELECT u.id, u.name, u.email
+                    SELECT DISTINCT u.id, u.name, u.email
                     FROM users u
                     JOIN instructor_subjects isub ON u.id = isub.instructor_id
-                    WHERE isub.subject_id = ?
-                `, [sub.id]);
+                    WHERE isub.subject_id IN (?)
+                `, [sub.all_ids]);
 
                 // Calculate Total Assigned for this subject
                 const totalAssigned = batches.reduce((sum, b) => sum + (b.student_count || 0), 0);
@@ -121,11 +143,12 @@ const superInstructorController = {
             if (assignments.length === 0) return res.json([]);
             const grade = assignments[0].grade;
 
+            // Updated to handle truncated grades in users table
             const [instructors] = await db.query(
                 `SELECT u.id, u.name, u.email, u.is_active, u.created_at, u.phone
                  FROM users u 
                  WHERE u.role_id = (SELECT id FROM roles WHERE name = 'instructor')
-                 AND u.grade = ?`,
+                 AND ? LIKE CONCAT(u.grade, '%')`,
                 [grade]
             );
             res.json(instructors);
@@ -145,11 +168,12 @@ const superInstructorController = {
             if (assignments.length === 0) return res.json([]);
             const grade = assignments[0].grade;
 
+            // Updated match for truncated grades
             const [instructors] = await db.query(
                 `SELECT u.id, u.name, u.email, u.created_at, u.phone
                  FROM users u 
                  WHERE u.role_id = (SELECT id FROM roles WHERE name = 'instructor')
-                 AND u.grade = ?
+                 AND ? LIKE CONCAT(u.grade, '%')
                  AND u.is_active = 0`,
                 [grade]
             );
@@ -194,7 +218,8 @@ const superInstructorController = {
             const gradeName = cls[0].name;
 
             const [instCheck] = await db.query('SELECT grade FROM users WHERE id = ?', [instructorId]);
-            if (!instCheck.length || instCheck[0].grade !== gradeName) {
+            // Logic Update: Allow truncated grade match
+            if (!instCheck.length || !gradeName.startsWith(instCheck[0].grade)) {
                 return res.status(403).json({ message: "Instructor does not belong to your assigned grade." });
             }
 
@@ -266,6 +291,16 @@ const superInstructorController = {
                 return res.status(400).json({ message: 'Batch name is required.' });
             }
 
+            // 3.5 Check for duplicate batch name for this subject & instructor
+            const [existingBatch] = await db.query(
+                'SELECT id FROM batches WHERE subject_id = ? AND instructor_id = ? AND name = ?',
+                [subjectId, instructorId, batchName.trim()]
+            );
+
+            if (existingBatch.length > 0) {
+                return res.status(400).json({ message: 'A batch with this name already exists for this instructor.' });
+            }
+
             // 4. Create the batch
             const capacity = maxStudents || 2; // Default to 2 students per batch
             await db.query(
@@ -307,12 +342,16 @@ const superInstructorController = {
 
             // Get all active students in this grade who are ELIGIBLE for this subject
             // Eligible means: selected_subject_id IS NULL OR selected_subject_id = subjectId
+            // Updated: Robust check for truncated/suffixed grades
+            const cleanGrade = grade.replace(/Academic Ecosystem/gi, '').trim();
             const [allStudents] = await db.query(
                 `SELECT u.id FROM users u 
                  JOIN roles r ON u.role_id = r.id 
-                 WHERE r.name = 'student' AND u.grade = ? AND u.is_active = 1 AND u.plan_name != 'Free'
+                 WHERE r.name = 'student' 
+                 AND (u.grade = ? OR u.grade LIKE ? OR ? LIKE CONCAT(u.grade, '%'))
+                 AND u.is_active = 1 AND u.plan_name != 'Free'
                  AND (u.selected_subject_id IS NULL OR u.selected_subject_id = ?)`,
-                [grade, subjectId]
+                [grade, `%${cleanGrade}%`, grade, subjectId]
             );
 
             // 3. Find Unassigned Students for this Subject
@@ -382,11 +421,13 @@ const superInstructorController = {
             if (assignments.length === 0) return res.json([]);
             const grade = assignments[0].grade;
 
+            // Updated for truncated grades
             const [students] = await db.query(
                 `SELECT u.id, u.name, u.email, u.created_at, u.phone, u.is_active, u.plan_name
                  FROM users u 
                  WHERE u.role_id = (SELECT id FROM roles WHERE name = 'student')
-                 AND u.grade = ? AND u.plan_name != 'Free'`,
+                 AND ? LIKE CONCAT(u.grade, '%')
+                 AND u.plan_name != 'Free'`,
                 [grade]
             );
             res.json(students);
@@ -491,11 +532,13 @@ const superInstructorController = {
 
             // 4. Also clear qualifications for any instructor belonging to this grade 
             // to ensure no "already qualified" errors remain
+            // Updated for truncated/suffixed grades
+            const cleanGrade = gradeName.replace(/Academic Ecosystem/gi, '').trim();
             await db.query(`
-                DELETE isub FROM instructor_subjects isub
-                JOIN users u ON isub.instructor_id = u.id
-                WHERE u.grade = ?
-            `, [gradeName]);
+            DELETE isub FROM instructor_subjects isub
+            JOIN users u ON isub.instructor_id = u.id
+            WHERE (u.grade = ? OR u.grade LIKE ? OR ? LIKE CONCAT(u.grade, '%'))
+        `, [gradeName, `%${cleanGrade}%`, gradeName]);
 
             res.json({ message: "System reset complete. All batches and qualifications for your grade have been cleared." });
 
@@ -567,8 +610,11 @@ const superInstructorController = {
 
             const classId = assignments[0].class_id;
 
-            // 2. Get Subjects for this Class
-            const [subjects] = await db.query('SELECT id, name FROM subjects WHERE class_id = ?', [classId]);
+            // 2. Get Unique Subjects for this Class (deduplicate by name)
+            const [subjects] = await db.query(
+                'SELECT MIN(id) as id, name FROM subjects WHERE class_id = ? GROUP BY name ORDER BY name',
+                [classId]
+            );
 
             res.json(subjects);
         } catch (err) {

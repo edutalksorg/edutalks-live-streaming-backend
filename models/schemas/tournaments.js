@@ -4,7 +4,7 @@ module.exports = {
         id INT AUTO_INCREMENT PRIMARY KEY,
         name VARCHAR(255) NOT NULL,
         description TEXT,
-        level_id INT NOT NULL,
+        level_id INT,
         subject_id INT,
         instructor_id INT NOT NULL,
         
@@ -44,7 +44,7 @@ module.exports = {
         { name: 'id', definition: 'INT AUTO_INCREMENT PRIMARY KEY' },
         { name: 'name', definition: 'VARCHAR(255) NOT NULL' },
         { name: 'description', definition: 'TEXT' },
-        { name: 'level_id', definition: 'INT NOT NULL' },
+        { name: 'level_id', definition: 'INT' },
         { name: 'subject_id', definition: 'INT' },
         { name: 'instructor_id', definition: 'INT NOT NULL' },
         { name: 'registration_start', definition: 'DATETIME NOT NULL' },

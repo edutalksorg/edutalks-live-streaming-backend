@@ -93,9 +93,11 @@ exports.verifyPayment = async (req, res) => {
                     // Otherwise, get all subjects for the grade (for school students).
                     let subjectQuery = `
                         SELECT s.id FROM subjects s 
-                        WHERE s.grade = ? OR s.class_id = (SELECT id FROM classes WHERE name = ?)
+                        WHERE s.grade = ? 
+                        OR s.grade LIKE ?
+                        OR s.class_id = (SELECT id FROM classes WHERE name = ? OR name LIKE ? LIMIT 1)
                     `;
-                    let subjectParams = [grade, grade];
+                    let subjectParams = [grade, `${grade}%`, grade, `${grade}%`];
 
                     if (selectedSubjectId) {
                         subjectQuery += ' AND s.id = ?';

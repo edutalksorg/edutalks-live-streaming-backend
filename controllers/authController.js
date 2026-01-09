@@ -44,15 +44,22 @@ exports.login = async (req, res) => {
             } else if (user.grade) {
                 // Fallback: Auto-assign if grade is set but link is missing
                 try {
-                    const [classes] = await req.app.locals.db.query('SELECT id, name FROM classes WHERE name = ?', [user.grade]);
+                    // Try exact, then fuzzy
+                    let [classes] = await req.app.locals.db.query('SELECT id, name FROM classes WHERE name = ?', [user.grade]);
+                    if (classes.length === 0) {
+                        const cleanGrade = user.grade.replace(/Academic Ecosystem/gi, '').replace(/[^a-zA-Z0-9\s]/g, '').trim();
+                        [classes] = await req.app.locals.db.query('SELECT id, name FROM classes WHERE name LIKE ? OR ? LIKE CONCAT(name, "%") LIMIT 1', [`%${cleanGrade}%`, user.grade]);
+                    }
+
                     if (classes.length > 0) {
                         const classId = classes[0].id;
+                        const finalClassName = classes[0].name;
                         await req.app.locals.db.query(
                             'INSERT INTO class_super_instructors (class_id, super_instructor_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE super_instructor_id = VALUES(super_instructor_id)',
                             [classId, user.id]
                         );
-                        console.log(`Auto-assigned Super Instructor ${user.name} to class ${user.grade} during login fallback.`);
-                        assignedClass = { id: classId, name: user.grade };
+                        console.log(`Auto-assigned Super Instructor ${user.name} to class ${finalClassName} during login fallback (Grade: ${user.grade}).`);
+                        assignedClass = { id: classId, name: finalClassName };
                     }
                 } catch (assignErr) {
                     console.error("Failed to auto-assign Super Instructor during login fallback:", assignErr);
@@ -236,7 +243,7 @@ exports.resetPassword = async (req, res) => {
     const { token, newPassword } = req.body;
     try {
         const [users] = await req.app.locals.db.query(
-            'SELECT * FROM users WHERE reset_token = ? AND reset_token_expires > NOW()',
+            'SELECT * FROM users WHERE reset_token = ? AND reset_token_expires > UTC_TIMESTAMP()',
             [token]
         );
 

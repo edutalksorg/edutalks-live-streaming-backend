@@ -2,6 +2,19 @@ const { v4: uuidv4 } = require('uuid');
 const emailService = require('../services/emailService');
 const agoraService = require('../services/agoraService');
 
+// Helper to convert ISO string to MySQL DATETIME format
+const formatDateForMySQL = (dateStr) => {
+    if (!dateStr) return null;
+    try {
+        const date = new Date(dateStr);
+        if (isNaN(date.getTime())) return null;
+        // Format: YYYY-MM-DD HH:MM:SS
+        return date.toISOString().slice(0, 19).replace('T', ' ');
+    } catch (e) {
+        return null;
+    }
+};
+
 exports.createSuperInstructorClass = async (req, res) => {
     const { title, description, start_time, duration, subject_id } = req.body;
     const super_instructor_id = req.user.id;
@@ -16,9 +29,12 @@ exports.createSuperInstructorClass = async (req, res) => {
         // Generate unique channel name for Agora
         const agora_channel = `si_class_${super_instructor_id}_${Date.now()}`;
 
+        // Convert ISO datetime to MySQL format
+        const mysqlStartTime = formatDateForMySQL(start_time);
+
         const [result] = await db.query(
             'INSERT INTO super_instructor_classes (title, description, start_time, duration, super_instructor_id, subject_id, grade, agora_channel) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            [title, description, start_time, duration, super_instructor_id, subject_id || null, grade, agora_channel]
+            [title, description, mysqlStartTime, duration, super_instructor_id, subject_id || null, grade, agora_channel]
         );
 
         // Notify Students in the same grade
@@ -352,9 +368,12 @@ exports.updateClass = async (req, res) => {
         );
         if (classes.length === 0) return res.status(403).json({ message: 'Unauthorized' });
 
+        // Convert ISO datetime to MySQL format
+        const mysqlStartTime = formatDateForMySQL(start_time);
+
         await db.query(
             'UPDATE super_instructor_classes SET title = ?, description = ?, start_time = ?, duration = ?, subject_id = ? WHERE id = ?',
-            [title, description, start_time, duration, subject_id || null, id]
+            [title, description, mysqlStartTime, duration, subject_id || null, id]
         );
 
         if (req.app.locals.io) {
