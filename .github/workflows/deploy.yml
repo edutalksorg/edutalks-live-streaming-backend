@@ -1,4 +1,4 @@
-name: Deploy Frontend to S3 & CloudFrontt
+name: Deploy EduTalks Backend
  
 on:
   push:
@@ -10,48 +10,36 @@ jobs:
     runs-on: ubuntu-latest
  
     steps:
-      # 1. Checkout code
-      - name: Checkout repository
+      - name: Checkout code
         uses: actions/checkout@v4
  
-      # 2. Setup Node.js
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
  
-      # 3. Install dependencies
-      - name: Install dependencies
+      # CI sanity check only (not used in prod)
+      - name: Install dependencies (CI check)
         run: npm install
  
-      # 4. Build frontend (Vite)
-      - name: Build frontend
-        run: npm run build
- 
-      # 5. Configure AWS credentials
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+      - name: Deploy to EC2 (overwrite in place)
+        uses: burnett01/rsync-deployments@7.0.2
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          switches: "-az --delete --exclude=.git --exclude=.github --exclude=node_modules --exclude=.env"
+          path: "./"
+          remote_path: ${{ secrets.EC2_APP_PATH }}
+          remote_host: ${{ secrets.EC2_HOST }}
+          remote_user: ${{ secrets.EC2_USER }}
+          remote_key: ${{ secrets.EC2_SSH_KEY }}
  
-      # 6. Generate deployment version
-      - name: Generate version
-        id: version
-        run: |
-          VERSION="v$(date +%Y%m%d%H%M%S)"
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Deploying version: $VERSION"
- 
-      # 7. Upload build to S3 (NO extra folder)
-      - name: Deploy to S3
-        run: |
-          aws s3 sync dist/ s3://${{ secrets.S3_BUCKET_NAME }} --delete
- 
-      # 8. Invalidate CloudFront cache
-      - name: Invalidate CloudFront cache
-        run: |
-          aws cloudfront create-invalidation \
-            --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} \
-            --paths "/*"
+      - name: Install prod deps & restart PM2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            cd ${{ secrets.EC2_APP_PATH }}
+            npm install --omit=dev
+            pm2 reload edutalks-live-backend || pm2 start server.js --name edutalks-live-backend
+            pm2 save
