@@ -112,20 +112,32 @@ exports.getStudentSuperInstructorClasses = async (req, res) => {
         const db = req.app.locals.db;
         const studentId = req.user.id;
 
-        // Get Student's Grade
-        const [users] = await db.query('SELECT grade FROM users WHERE id = ?', [studentId]);
+        // Get Student's Grade & Selected Subject
+        const [users] = await db.query('SELECT grade, selected_subject_id FROM users WHERE id = ?', [studentId]);
         if (users.length === 0) return res.status(404).json({ message: 'Student not found' });
-        const grade = users[0].grade;
 
-        // Get all Super Instructor classes for this grade
-        const [classes] = await db.query(`
+        const { grade, selected_subject_id } = users[0];
+
+        // Query Builder
+        let query = `
             SELECT sic.*, s.name as subject_name, u.name as instructor_name
             FROM super_instructor_classes sic
             LEFT JOIN subjects s ON sic.subject_id = s.id
             JOIN users u ON sic.super_instructor_id = u.id
             WHERE sic.grade = ?
-            ORDER BY sic.start_time DESC
-        `, [grade]);
+        `;
+
+        const params = [grade];
+
+        // Specific filtering for UG/PG or if a subject is selected
+        if (selected_subject_id) {
+            query += ` AND (sic.subject_id IS NULL OR sic.subject_id = ?)`;
+            params.push(selected_subject_id);
+        }
+
+        query += ` ORDER BY sic.start_time DESC`;
+
+        const [classes] = await db.query(query, params);
 
         res.json(classes);
     } catch (err) {
