@@ -120,9 +120,18 @@ exports.register = async (req, res) => {
         // Determine Active Status
         const isActive = (requestedRole === 'student');
 
+        // Auto-resolve selected_subject_id for UG/PG granular classes
+        let resolvedSubjectId = null;
+        if (grade && (grade.startsWith('UG -') || grade.startsWith('PG -'))) {
+            const [subjectRows] = await req.app.locals.db.query('SELECT id FROM subjects WHERE grade = ? LIMIT 1', [grade]);
+            if (subjectRows.length > 0) {
+                resolvedSubjectId = subjectRows[0].id;
+            }
+        }
+
         const [userResult] = await req.app.locals.db.query(
             'INSERT INTO users (name, email, password, role_id, grade, phone, is_active, selected_subject_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            [name, email, hashedPassword, roleId, grade || null, phone, isActive, req.body.selected_course_id || null]
+            [name, email, hashedPassword, roleId, grade || null, phone, isActive, resolvedSubjectId]
         );
 
         const newUserId = userResult.insertId;

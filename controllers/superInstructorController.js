@@ -15,24 +15,10 @@ const superInstructorController = {
             const [classes] = await db.query('SELECT name FROM classes WHERE id = ?', [classId]);
             let className = classes[0].name;
 
-            // Fix for truncated Grade names (e.g. "🧠 Artificial Intelli")
-            // Try to find a matching full subject name
-            const cleanName = className.replace(/[^a-zA-Z0-9\s]/g, '').trim();
-            if (cleanName.length > 3) {
-                const [fuzzyMatch] = await db.query('SELECT name FROM subjects WHERE name LIKE ? LIMIT 1', [`%${cleanName}%`]);
-                if (fuzzyMatch.length > 0) {
-                    // Update: If it's a professional course, we might want to prefix the Level if known
-                    // But strictly speaking, if the class name in DB is "Artificial Intelligence", 
-                    // and that IS the course, we just return that.
-                    // However, if the key is "UG", we might want "UG - [Course]".
-                    // Current logic replaces "Artificial Intelli" -> "Artificial Intelligence".
-                    // Let's refine:
-                    if (className.includes('UG') || className.includes('PG')) {
-                        className = `${className.substring(0, 2)} - ${fuzzyMatch[0].name}`;
-                    } else {
-                        className = fuzzyMatch[0].name;
-                    }
-                }
+            // Branding: Use class name as is, since they are now fully descriptive (e.g., "UG Python...")
+            // If it's just a number, prefix with "Class"
+            if (!isNaN(parseFloat(className)) && !className.includes('Class')) {
+                className = `Class ${className}`;
             }
 
             // 3. Stats

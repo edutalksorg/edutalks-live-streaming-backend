@@ -3,9 +3,10 @@ const bcrypt = require('bcryptjs');
 exports.getAllUsers = async (req, res) => {
     try {
         let sql = `
-            SELECT u.id, u.name, u.email, u.role_id, r.name as role_name, u.is_active, u.created_at, u.phone, u.grade 
+            SELECT u.id, u.name, u.email, u.role_id, r.name as role_name, u.is_active, u.created_at, u.phone, u.grade, s.name as course_name 
             FROM users u 
             JOIN roles r ON u.role_id = r.id
+            LEFT JOIN subjects s ON u.selected_subject_id = s.id
         `;
         const params = [];
 
@@ -42,9 +43,18 @@ exports.createUser = async (req, res) => {
 
         const hashedPassword = await bcrypt.hash(password, 10);
 
+        // Auto-resolve selected_subject_id for UG/PG granular classes
+        let resolvedSubjectId = null;
+        if (role === 'student' && grade && (grade.startsWith('UG -') || grade.startsWith('PG -'))) {
+            const [subjectRows] = await req.app.locals.db.query('SELECT id FROM subjects WHERE grade = ? LIMIT 1', [grade]);
+            if (subjectRows.length > 0) {
+                resolvedSubjectId = subjectRows[0].id;
+            }
+        }
+
         await req.app.locals.db.query(
-            'INSERT INTO users (name, email, password, role_id, grade, phone) VALUES (?, ?, ?, ?, ?, ?)',
-            [name, email, hashedPassword, roleId, grade || null, phone || null]
+            'INSERT INTO users (name, email, password, role_id, grade, phone, selected_subject_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [name, email, hashedPassword, roleId, grade || null, phone || null, resolvedSubjectId]
         );
 
         res.status(201).json({ message: 'User created successfully' });

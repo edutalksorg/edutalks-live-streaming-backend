@@ -5,6 +5,7 @@ module.exports = {
         name VARCHAR(100) NOT NULL,
         class_id INT,
         grade VARCHAR(100),
+        UNIQUE (name, class_id),
         FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE
     )`,
     columns: [

@@ -68,82 +68,42 @@ exports.verifyPayment = async (req, res) => {
             );
             console.log('[PaymentVerify] Payment record inserted successfully');
 
-            // 2. Update User Subscription
-            const expiresAt = new Date();
-            if (planName === 'Monthly') {
-                expiresAt.setMonth(expiresAt.getMonth() + 1);
-            } else {
-                expiresAt.setFullYear(expiresAt.getFullYear() + 1);
-            }
-
-            await db.query(
-                'UPDATE users SET plan_name = ?, subscription_expires_at = ? WHERE id = ?',
-                [planName || 'Pro', expiresAt, userId]
-            );
-
-            // 3. Auto-Allocate Student to Batches
+            // 2. Update user subscription
             try {
-                // Get student's grade and selected course
-                const [userInfo] = await db.query('SELECT grade, selected_subject_id FROM users WHERE id = ?', [userId]);
-                if (userInfo.length > 0 && userInfo[0].grade) {
-                    const grade = userInfo[0].grade;
-                    const selectedSubjectId = userInfo[0].selected_subject_id;
-
-                    // Get subjects: If selectedSubjectId is present, ONLY get that subject.
-                    // Otherwise, get all subjects for the grade (for school students).
-                    let subjectQuery = `
-                        SELECT s.id FROM subjects s 
-                        WHERE s.grade = ? 
-                        OR s.grade LIKE ?
-                        OR s.class_id = (SELECT id FROM classes WHERE name = ? OR name LIKE ? LIMIT 1)
-                    `;
-                    let subjectParams = [grade, `${grade}%`, grade, `${grade}%`];
-
-                    if (selectedSubjectId) {
-                        subjectQuery += ' AND s.id = ?';
-                        subjectParams.push(selectedSubjectId);
-                    }
-
-                    const [subjects] = await db.query(subjectQuery, subjectParams);
-
-                    for (const subject of subjects) {
-                        // Check if student is already assigned to a batch for this subject
-                        const [existingAssignment] = await db.query(`
-                            SELECT sb.id FROM student_batches sb
-                            JOIN batches b ON sb.batch_id = b.id
-                            WHERE sb.student_id = ? AND b.subject_id = ?
-                        `, [userId, subject.id]);
-
-                        if (existingAssignment.length === 0) {
-                            // Find a batch with available capacity for this subject
-                            const [availableBatches] = await db.query(`
-                                SELECT b.id, b.student_count, b.max_students
-                                FROM batches b
-                                WHERE b.subject_id = ? AND b.student_count < b.max_students
-                                ORDER BY b.id ASC
-                                LIMIT 1
-                            `, [subject.id]);
-
-                            if (availableBatches.length > 0) {
-                                const batchId = availableBatches[0].id;
-                                // Assign student to batch
-                                await db.query('INSERT INTO student_batches (student_id, batch_id) VALUES (?, ?)', [userId, batchId]);
-                                // Update batch student count
-                                await db.query('UPDATE batches SET student_count = student_count + 1 WHERE id = ?', [batchId]);
-                            }
-                        }
-                    }
-                    console.log(`[AutoAllocation] Allocated student ${userId} to batches for grade ${grade} (Specific Subject: ${selectedSubjectId || 'All'})`);
+                const expiresAt = new Date();
+                if (planName === 'Monthly') {
+                    expiresAt.setMonth(expiresAt.getMonth() + 1); // 1 Month
+                } else {
+                    expiresAt.setFullYear(expiresAt.getFullYear() + 1); // 1 Year
                 }
-            } catch (allocErr) {
-                console.error('[AutoAllocation] Error during auto-allocation:', allocErr);
-                // Don't fail the payment, just log the error
-            }
 
-            res.json({ success: true, message: 'Payment verified and subscription activated' });
+                await db.query(
+                    'UPDATE users SET plan_name = ?, subscription_expires_at = ? WHERE id = ?',
+                    [planName || 'Pro', expiresAt, userId]
+                );
+
+                // 3. Auto-allocate student to relevant batches
+                try {
+                    const BatchAllocationService = require('../services/batchAllocationService');
+                    const batchService = new BatchAllocationService(db);
+
+                    // Fetch user data again to ensure we have the latest grade
+                    const [users] = await db.query('SELECT grade FROM users WHERE id = ?', [userId]);
+                    if (users.length > 0 && users[0].grade) {
+                        await batchService.allocateStudentToBatches(userId, users[0].grade);
+                    }
+                } catch (allocErr) {
+                    console.error('[AutoAllocation] Error:', allocErr);
+                }
+
+                res.json({ success: true, message: 'Payment verified and subscription activated' });
+            } catch (err) {
+                console.error(err);
+                res.status(500).json({ message: 'Database update failed after payment' });
+            }
         } catch (err) {
             console.error(err);
-            res.status(500).json({ message: 'Database update failed after payment' });
+            res.status(500).json({ message: 'Payment verification failed', error: err.message });
         }
     } else {
         res.status(400).json({ success: false, message: 'Invalid formatting or signature mismatch' });

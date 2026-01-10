@@ -178,7 +178,7 @@ const studentController = {
             let displayClassName = grade;
             if ((grade === 'UG' || grade === 'PG') && courseName) {
                 displayClassName = `${grade} - ${courseName}`;
-            } else if (grade && !isNaN(parseFloat(grade))) {
+            } else if (grade && !isNaN(parseFloat(grade)) && !grade.includes('Class')) {
                 displayClassName = `Class ${grade}`;
             }
 
@@ -300,10 +300,7 @@ const studentController = {
             }
 
             // 2. Get Subjects (Including Assigned Instructor - ONLY if student is in that batch)
-            const [selectedSub] = await db.query('SELECT selected_subject_id FROM users WHERE id = ?', [studentId]);
-            const selectedSubjectId = selectedSub[0]?.selected_subject_id;
-
-            console.log(`[getSubjectsFull] Student ID: ${studentId}, Selected Subject ID: ${selectedSubjectId}, Grade: ${grade}`);
+            console.log(`[getSubjectsFull] Student ID: ${studentId}, Grade: ${grade}`);
 
             let subjectQuery = `
                 SELECT s.id, s.name, 
@@ -314,41 +311,12 @@ const studentController = {
                         WHERE sb2.student_id = ? AND b2.subject_id = s.id
                         LIMIT 1) as instructor_name
                 FROM subjects s
+                WHERE s.class_id = (SELECT id FROM classes WHERE name = ? OR name LIKE ? LIMIT 1) 
+                OR s.grade = ? 
+                OR s.grade LIKE ?
             `;
 
-            let subjectParams = [studentId];
-
-            if (selectedSubjectId) {
-                // Specific Course Selection (UG/PG)
-                console.log('[getSubjectsFull] Fetching by Selected Subject ID');
-                subjectQuery += ' WHERE s.id = ?';
-                subjectParams.push(selectedSubjectId);
-            } else {
-                // School Grade Selection or Professional Course Name
-                console.log(`[getSubjectsFull] Fetching by Grade Fallback: "${grade}"`);
-
-                const cleanGrade = grade.replace(/[^a-zA-Z0-9\s]/g, '').trim();
-
-                // Logic Update: Passing Truncated Grade Handling is NO LONGER needed but kept for legacy
-                // We now have full VARCHAR(100) columns.
-                // We use exact matches first, then fallbacks.
-
-                subjectQuery += `
-                    WHERE s.class_id = (SELECT id FROM classes WHERE name = ? OR name LIKE ? LIMIT 1) 
-                    OR s.grade = ? 
-                    OR s.grade LIKE ?
-                    OR s.id = (SELECT id FROM subjects WHERE name = ? OR name LIKE ? LIMIT 1)
-                `;
-
-                // Params: 
-                // 1. Class Name Match (Exact or Pattern)
-                // 2. Class Name Like
-                // 3. Subject Grade exact match
-                // 4. Subject Grade LIKE
-                // 5. Subject Name exact
-                // 6. Subject Name LIKE
-                subjectParams.push(grade, `${grade}%`, grade, `${grade}%`, grade, `${grade}%`);
-            }
+            let subjectParams = [studentId, grade, `${grade}%`, grade, `${grade}%`];
             const [subjects] = await db.query(subjectQuery, subjectParams);
 
             console.log(`[getSubjectsFull] Found ${subjects.length} subjects for grade "${grade}"`);

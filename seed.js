@@ -2,21 +2,27 @@ const mysql = require('mysql2/promise');
 require('dotenv').config();
 const bcrypt = require('bcryptjs');
 
+const courses = [
+    'Python Full Stack Development',
+    'Java Full Stack Development',
+    'Web Development',
+    'Data Science and Analytics',
+    'Artificial Intelligence and Machine Learning',
+    'Cloud Computing and DevOps',
+    'Cyber Security and Networking',
+    'C Programming',
+    'C++ Programming',
+    'Data Structures and Algorithms'
+];
+
 const curriculum = {
-    // 1. Define the High-Level Classes
     classes: [
-        // Schooling
         '6th Class', '7th Class', '8th Class', '9th Class', '10th Class',
         '11th Class', '12th Class',
-
-        // Higher Education (New Structure)
-        'UG',
-        'PG'
+        ...courses.map(course => `UG - ${course}`),
+        ...courses.map(course => `PG - ${course}`)
     ],
-
-    // 2. Define Subjects for each Class
     subjects: {
-        // School Subjects
         '6th Class': ['Mathematics', 'Science', 'Social Studies', 'English', 'Telugu', 'Hindi', 'Sanskrit', 'Olympiad Foundation', 'NTSE Foundation'],
         '7th Class': ['Mathematics', 'Science', 'Social Studies', 'English', 'Telugu', 'Hindi', 'Sanskrit', 'Olympiad Foundation', 'NTSE Foundation'],
         '8th Class': ['Mathematics', 'Science', 'Social Studies', 'English', 'Telugu', 'Hindi', 'Sanskrit', 'Olympiad Foundation', 'NTSE Foundation'],
@@ -24,38 +30,13 @@ const curriculum = {
         '10th Class': ['Mathematics', 'Physical Science', 'Biological Science', 'Social Studies', 'English', 'Telugu', 'Hindi', 'Sanskrit', 'NTSE', 'Olympiad', 'IIT/NEET Foundation', 'Polytechnic CET'],
         '11th Class': ['Mathematics 1A', 'Mathematics 1B', 'Physics', 'Chemistry', 'Botany', 'Zoology', 'Commerce', 'Economics', 'Civics', 'History', 'English', 'JEE Mains', 'NEET', 'TS EAMCET', 'NDA'],
         '12th Class': ['Mathematics 2A', 'Mathematics 2B', 'Physics', 'Chemistry', 'Botany', 'Zoology', 'Commerce', 'Economics', 'Civics', 'History', 'English', 'JEE Mains & Advanced', 'NEET', 'TS EAMCET', 'NDA', 'CUET'],
-
-        // UG Subjects (Courses are treated as Subjects)
-        'UG': [
-            'B.Tech',
-            'B.Sc',
-            'B.Com',
-            'B.A',
-            'Python Full Stack Development',
-            'Java Full Stack Development',
-            'Web Development',
-            'Data Science and Analytics',
-            'Artificial Intelligence and Machine Learning',
-            'Cloud Computing and DevOps',
-            'Cyber Security and Networking',
-            'C Programming',
-            'C++ Programming',
-            'Data Structures and Algorithms'
-        ],
-
-        // PG Subjects
-        'PG': [
-            'M.Tech',
-            'MBA',
-            'MCA',
-            'M.Sc',
-            'Python Full Stack Development',
-            'Java Full Stack Development',
-            'Data Science and Analytics',
-            'Artificial Intelligence and Machine Learning'
-        ]
     }
 };
+
+courses.forEach(course => {
+    curriculum.subjects[`UG - ${course}`] = [course];
+    curriculum.subjects[`PG - ${course}`] = [course];
+});
 
 async function seedAdmin(connection) {
     const email = process.env.SUPER_ADMIN_EMAIL;
