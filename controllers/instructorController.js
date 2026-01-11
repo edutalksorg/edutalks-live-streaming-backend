@@ -63,9 +63,9 @@ const instructorController = {
                 displayClassName = `Multiple Grades (${distinctClasses.length})`;
             }
 
-            // 2. Count Active Exams
+            // 2. Count Active Exams (Exams that are not expired yet)
             const [exams] = await db.query(
-                'SELECT COUNT(*) as count FROM exams WHERE instructor_id = ?',
+                'SELECT COUNT(*) as count FROM exams WHERE instructor_id = ? AND (expiry_date IS NULL OR expiry_date >= UTC_TIMESTAMP())',
                 [instructorId]
             );
 
@@ -82,12 +82,19 @@ const instructorController = {
 
             const totalStudents = batches.reduce((sum, b) => sum + (b.student_count || 0), 0);
 
+            // 4. Count Classes Conducted (Live or Completed)
+            const [classesConducted] = await db.query(
+                `SELECT COUNT(*) as count FROM live_classes 
+                 WHERE instructor_id = ? AND status IN ('live', 'completed')`,
+                [instructorId]
+            );
+
             res.json({
                 stats: {
                     totalStudents,
                     activeExams: exams[0].count,
                     pendingReviews: pendingReviews[0].count,
-                    classesCount: 0 // Ideally fetch from a live_classes history table
+                    classesCount: classesConducted[0].count
                 },
                 batches,
                 displayClassName
