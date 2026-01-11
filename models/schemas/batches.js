@@ -6,7 +6,7 @@ module.exports = {
         instructor_id INT NOT NULL,
         name VARCHAR(100),
         student_count INT DEFAULT 0,
-        max_students INT DEFAULT 2,
+        max_students INT DEFAULT 30,
         is_active BOOLEAN DEFAULT TRUE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (subject_id) REFERENCES subjects(id) ON DELETE CASCADE,
@@ -18,7 +18,7 @@ module.exports = {
         { name: 'instructor_id', definition: 'INT NOT NULL' },
         { name: 'name', definition: 'VARCHAR(100)' },
         { name: 'student_count', definition: 'INT DEFAULT 0' },
-        { name: 'max_students', definition: 'INT DEFAULT 2' },
+        { name: 'max_students', definition: 'INT DEFAULT 30' },
         { name: 'is_active', definition: 'BOOLEAN DEFAULT TRUE' },
         { name: 'created_at', definition: 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP' }
     ]

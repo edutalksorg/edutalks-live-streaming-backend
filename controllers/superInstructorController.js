@@ -235,7 +235,7 @@ const superInstructorController = {
 
             await db.query(
                 'INSERT INTO batches (subject_id, instructor_id, name, max_students) VALUES (?, ?, ?, ?)',
-                [subjectId, instructorId, batchName, 2]
+                [subjectId, instructorId, batchName, 30]
             );
 
             res.json({ message: 'Instructor assigned and batch created successfully! You can now distribute students.' });
@@ -288,7 +288,7 @@ const superInstructorController = {
             }
 
             // 4. Create the batch
-            const capacity = maxStudents || 2; // Default to 2 students per batch
+            const capacity = maxStudents || 30; // Default to 30 students per batch
             await db.query(
                 'INSERT INTO batches (name, subject_id, instructor_id, max_students) VALUES (?, ?, ?, ?)',
                 [batchName.trim(), subjectId, instructorId, capacity]
@@ -366,7 +366,7 @@ const superInstructorController = {
                 // Check current batch count
                 const [countRes] = await db.query('SELECT COUNT(*) as count FROM student_batches WHERE batch_id = ?', [batch.id]);
                 let currentCount = countRes[0].count;
-                const capacity = batch.max_students || 2; // Use dynamic capacity from DB
+                const capacity = batch.max_students || 30; // Use dynamic capacity from DB
 
                 if (currentCount >= capacity) continue; // Batch full, move to next
 
