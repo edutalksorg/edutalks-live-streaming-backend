@@ -24,8 +24,13 @@ exports.getAllUsers = async (req, res) => {
 };
 
 exports.createUser = async (req, res) => {
-    const { name, email, password, role, grade, phone } = req.body;
+    let { name, email, password, role, grade, phone } = req.body;
     // role: 'admin', 'super_instructor', 'instructor'
+
+    // Admin should not have a grade
+    if (role === 'admin') {
+        grade = null;
+    }
 
     try {
         // Check if exists
