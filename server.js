@@ -188,11 +188,15 @@ io.on('connection', (socket) => {
                 socket.to(room).emit('user_joined', { userId, userName, role });
 
                 const socketsInRoom = await io.in(room).fetchSockets();
-                const members = socketsInRoom.map(s => ({
+                const rawMembers = socketsInRoom.map(s => ({
                     userId: s.userId,
                     userName: s.userName,
                     role: s.role
                 })).filter(u => u.userId);
+
+                // Deduplicate by userId
+                const members = Array.from(new Map(rawMembers.map(m => [m.userId, m])).values());
+
                 io.to(room).emit('current_users', members);
 
                 // Sync current states for the room to the new joiner
@@ -216,6 +220,13 @@ io.on('connection', (socket) => {
                     if (state.screenLocked !== undefined) {
                         socket.emit('screen_status', { locked: state.screenLocked });
                     }
+                    if (state.screenSharing) {
+                        // Sync active screen share to new user
+                        socket.emit('screen_share_status', {
+                            allowed: true,
+                            studentId: state.screenSharerId
+                        });
+                    }
                 }
             } catch (err) {
                 console.error("Attendance Log Error:", err);
@@ -236,11 +247,15 @@ io.on('connection', (socket) => {
             // Refresh participant count for everyone remaining
             if (room) {
                 const socketsInRoom = await io.in(room).fetchSockets();
-                const members = socketsInRoom.map(s => ({
+                const rawMembers = socketsInRoom.map(s => ({
                     userId: s.userId,
                     userName: s.userName,
                     role: s.role
                 })).filter(u => u.userId);
+
+                // Deduplicate by userId
+                const members = Array.from(new Map(rawMembers.map(m => [m.userId, m])).values());
+
                 io.to(room).emit('current_users', members);
             }
 
@@ -336,7 +351,12 @@ io.on('connection', (socket) => {
     });
     socket.on('share_screen', (data) => {
         const room = getRoomName(data.classId, socket.classType);
-        if (room) io.to(room).emit('screen_share_status', data);
+        if (room) {
+            if (!roomStates[room]) roomStates[room] = {};
+            roomStates[room].screenSharing = data.allowed; // true or false
+            roomStates[room].screenSharerId = data.allowed ? data.studentId : null;
+            io.to(room).emit('screen_share_status', data);
+        }
     });
     socket.on('request_screen_share', (data) => {
         const room = getRoomName(data.classId, socket.classType);
