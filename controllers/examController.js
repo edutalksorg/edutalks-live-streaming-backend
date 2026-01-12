@@ -158,6 +158,9 @@ exports.submitExam = async (req, res) => {
             [exam_id, student_id, submissionDataString, file_url, autoScore, status]
         );
 
+        const io = req.app.locals.io;
+        if (io) io.emit('global_sync', { type: 'exams', action: 'submit', student_id, exam_id });
+
         res.status(201).json({
             message: 'Exam submitted successfully',
             submissionId: result.insertId,
@@ -195,6 +198,9 @@ exports.gradeSubmission = async (req, res) => {
             'UPDATE exam_submissions SET score = ?, review_text = ?, status = "graded" WHERE id = ?',
             [score, review_text, id]
         );
+        const io = req.app.locals.io;
+        if (io) io.emit('global_sync', { type: 'exams', action: 'grade', id });
+
         res.json({ message: 'Graded successfully' });
     } catch (err) {
         console.error(err);

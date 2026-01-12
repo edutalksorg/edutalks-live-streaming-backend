@@ -158,3 +158,31 @@ exports.sendPasswordResetEmail = async (userEmail, name, resetToken) => {
     await sendEmail(userEmail, subject, html);
 };
 
+exports.sendDoubtNotification = async (instructorEmail, instructorName, studentName, subjectName, doubtTitle) => {
+    const subject = `New Doubt Raised: ${doubtTitle}`;
+    const html = `
+        <h3>Hello ${instructorName},</h3>
+        <p>A student (<b>${studentName}</b>) has raised a new doubt in your subject: <b>${subjectName}</b>.</p>
+        <p><b>Topic:</b> ${doubtTitle}</p>
+        <p>Please login to your dashboard to provide a solution.</p>
+        <p><a href="${loginUrl}">Go to Dashboard</a></p>
+        <br/>
+        <p>Best Regards,<br/>EduTalks Team</p>
+    `;
+    await sendEmail(instructorEmail, subject, html);
+};
+
+exports.sendDoubtResolvedNotification = async (studentEmail, studentName, doubtTitle) => {
+    const subject = `Doubt Resolved: ${doubtTitle}`;
+    const html = `
+        <h3>Hello ${studentName},</h3>
+        <p>Your doubt regarding <b>${doubtTitle}</b> has been marked as <b>SOLVED</b> by your instructor.</p>
+        <p>You can check the solution on your doubts hub.</p>
+        <p><a href="${loginUrl}">View Solution</a></p>
+        <br/>
+        <p>Best Regards,<br/>EduTalks Team</p>
+    `;
+    await sendEmail(studentEmail, subject, html);
+};
+
+

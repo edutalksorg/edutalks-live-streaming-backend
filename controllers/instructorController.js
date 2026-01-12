@@ -63,9 +63,9 @@ const instructorController = {
                 displayClassName = `Multiple Grades (${distinctClasses.length})`;
             }
 
-            // 2. Count Active Exams (Exams that are not expired yet)
+            // 2. Count Active Exams (Exams that are currently live/available)
             const [exams] = await db.query(
-                'SELECT COUNT(*) as count FROM exams WHERE instructor_id = ? AND (expiry_date IS NULL OR expiry_date >= UTC_TIMESTAMP())',
+                'SELECT COUNT(*) as count FROM exams WHERE instructor_id = ? AND date <= UTC_TIMESTAMP() AND (expiry_date IS NULL OR expiry_date >= UTC_TIMESTAMP())',
                 [instructorId]
             );
 
@@ -238,6 +238,9 @@ const instructorController = {
                  ON DUPLICATE KEY UPDATE review_text = VALUES(review_text), score = VALUES(score), reviewed_at = CURRENT_TIMESTAMP`,
                 [submissionId, instructorId, reviewText, score]
             );
+
+            const io = req.app.locals.io;
+            if (io) io.emit('global_sync', { type: 'exams', action: 'grade', submissionId });
 
             res.json({ message: 'Review submitted successfully' });
         } catch (err) {

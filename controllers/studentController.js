@@ -51,8 +51,12 @@ const studentController = {
                 SELECT COUNT(*) as count FROM exams e 
                 JOIN batches b ON e.instructor_id = b.instructor_id AND e.subject_id = b.subject_id
                 JOIN student_batches sb ON b.id = sb.batch_id
-                WHERE sb.student_id = ? AND e.date >= CURDATE() AND (e.expiry_date IS NULL OR e.expiry_date >= UTC_TIMESTAMP())
-            `, [studentId]);
+                LEFT JOIN exam_submissions es ON e.id = es.exam_id AND es.student_id = ?
+                WHERE sb.student_id = ? 
+                AND e.date <= UTC_TIMESTAMP() 
+                AND (e.expiry_date IS NULL OR e.expiry_date >= UTC_TIMESTAMP())
+                AND es.id IS NULL
+            `, [studentId, studentId]);
 
             const [liveTournamentsCount] = await db.query(`
                 SELECT COUNT(*) as count FROM tournaments t

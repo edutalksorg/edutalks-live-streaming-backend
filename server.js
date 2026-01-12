@@ -71,6 +71,7 @@ const adminRoutes = require('./routes/adminRoutes');
 const superInstructorRoutes = require('./routes/superInstructorRoutes');
 const instructorRoutes = require('./routes/instructorRoutes');
 const studentRoutes = require('./routes/studentRoutes');
+const doubtRoutes = require('./routes/doubtRoutes');
 
 // Auto-setup database and tables on startup
 const { setup } = require('./utils/dbSetup');
@@ -97,7 +98,7 @@ async function startServer() {
 
         // 4. Configure Routes
         // Ensure upload directories exist
-        const uploadDirs = ['uploads', 'uploads/notes', 'uploads/exams'];
+        const uploadDirs = ['uploads', 'uploads/notes', 'uploads/exams', 'uploads/doubts'];
         uploadDirs.forEach(dir => {
             const fullPath = path.join(__dirname, dir);
             if (!fs.existsSync(fullPath)) {
@@ -123,6 +124,7 @@ async function startServer() {
         app.use('/api/super-instructor', superInstructorRoutes);
         app.use('/api/instructor', instructorRoutes);
         app.use('/api/student', studentRoutes);
+        app.use('/api/doubts', doubtRoutes);
 
         // Default Route
         app.get('/', (req, res) => {
@@ -225,7 +227,11 @@ io.on('connection', (socket) => {
         console.log('User disconnected:', socket.id);
         if (socket.userId && socket.classId) {
             const room = getRoomName(socket.classId, socket.classType);
-            if (room) socket.to(room).emit('user_left', { userId: socket.userId });
+            if (room) socket.to(room).emit('user_left', {
+                userId: socket.userId,
+                username: socket.userName,
+                role: socket.role
+            });
 
             try {
                 const db = app.locals.db;
