@@ -145,6 +145,12 @@ async function startServer() {
 // In a production environment, this should ideally be in Redis or a DB
 const roomStates = {};
 
+// Helper to normalize room name based on class type
+const getRoomName = (classId, classType) => {
+    if (!classId) return null;
+    return classType === 'super' ? `si_class_${classId}` : `reg_class_${classId}`;
+};
+
 // Socket.IO Logic
 io.on('connection', (socket) => {
     // Accesses app.locals.db set in startServer
@@ -154,7 +160,9 @@ io.on('connection', (socket) => {
         const classId = typeof data === 'object' ? data.classId : data;
         const userId = typeof data === 'object' ? data.userId : null;
         const classType = typeof data === 'object' ? data.classType : 'regular';
-        const room = String(classId);
+        const room = getRoomName(classId, classType);
+        if (!room) return;
+
         socket.join(room);
         console.log(`[Socket] User ${socket.id} joined room: ${room} (${classType})`);
 
@@ -216,8 +224,8 @@ io.on('connection', (socket) => {
     socket.on('disconnect', async () => {
         console.log('User disconnected:', socket.id);
         if (socket.userId && socket.classId) {
-            const room = String(socket.classId);
-            socket.to(room).emit('user_left', { userId: socket.userId });
+            const room = getRoomName(socket.classId, socket.classType);
+            if (room) socket.to(room).emit('user_left', { userId: socket.userId });
 
             try {
                 const db = app.locals.db;
@@ -235,105 +243,132 @@ io.on('connection', (socket) => {
     });
 
     socket.on('send_message', (data) => {
-        const room = String(data.classId);
-        io.to(room).emit('receive_message', data);
+        const room = getRoomName(data.classId, socket.classType);
+        if (room) io.to(room).emit('receive_message', data);
     });
 
     socket.on('toggle_chat', (data) => {
-        const room = String(data.classId);
+        const room = getRoomName(data.classId, socket.classType);
+        if (!room) return;
         if (!roomStates[room]) roomStates[room] = {};
         roomStates[room].chatLocked = data.locked;
         io.to(room).emit('chat_status', { locked: data.locked });
     });
     socket.on('toggle_audio', (data) => {
-        const room = String(data.classId);
+        const room = getRoomName(data.classId, socket.classType);
+        if (!room) return;
         if (!roomStates[room]) roomStates[room] = {};
         roomStates[room].audioLocked = data.locked;
         io.to(room).emit('audio_status', { locked: data.locked });
     });
     socket.on('toggle_video', (data) => {
-        const room = String(data.classId);
+        const room = getRoomName(data.classId, socket.classType);
+        if (!room) return;
         if (!roomStates[room]) roomStates[room] = {};
         roomStates[room].videoLocked = data.locked;
         io.to(room).emit('video_status', { locked: data.locked });
     });
-    socket.on('raise_hand', (data) => { io.to(String(data.classId)).emit('hand_raised', data); });
-    socket.on('lower_hand', (data) => { io.to(String(data.classId)).emit('hand_lowered', data); });
-    socket.on('approve_hand', (data) => { io.to(String(data.classId)).emit('hand_approved', data); });
+    socket.on('raise_hand', (data) => {
+        const room = getRoomName(data.classId, socket.classType);
+        if (room) io.to(room).emit('hand_raised', data);
+    });
+    socket.on('lower_hand', (data) => {
+        const room = getRoomName(data.classId, socket.classType);
+        if (room) io.to(room).emit('hand_lowered', data);
+    });
+    socket.on('approve_hand', (data) => {
+        const room = getRoomName(data.classId, socket.classType);
+        if (room) io.to(room).emit('hand_approved', data);
+    });
     socket.on('toggle_screen', (data) => {
-        const room = String(data.classId);
+        const room = getRoomName(data.classId, socket.classType);
+        if (!room) return;
         if (!roomStates[room]) roomStates[room] = {};
         roomStates[room].screenLocked = data.locked;
         io.to(room).emit('screen_status', { locked: data.locked });
     });
-    socket.on('toggle_whiteboard', (data) => { io.to(String(data.classId)).emit('whiteboard_status', { locked: data.locked }); });
+    socket.on('toggle_whiteboard', (data) => {
+        const room = getRoomName(data.classId, socket.classType);
+        if (room) io.to(room).emit('whiteboard_status', { locked: data.locked });
+    });
     socket.on('toggle_whiteboard_visibility', (data) => {
-        const room = String(data.classId);
+        const room = getRoomName(data.classId, socket.classType);
+        if (!room) return;
         if (!roomStates[room]) roomStates[room] = {};
         roomStates[room].whiteboardVisible = data.show;
         io.to(room).emit('whiteboard_visibility', { show: data.show });
     });
     socket.on('toggle_recording_protection', (data) => {
-        const room = String(data.classId);
+        const room = getRoomName(data.classId, socket.classType);
+        if (!room) return;
         if (!roomStates[room]) roomStates[room] = {};
         roomStates[room].recordingProtected = data.active;
         io.to(room).emit('recording_protection_status', { active: data.active });
     });
-    socket.on('whiteboard_draw', (data) => { socket.to(String(data.classId)).emit('whiteboard_draw', data); });
-    socket.on('whiteboard_clear', (data) => { socket.to(String(data.classId)).emit('whiteboard_clear'); });
-    socket.on('send_reaction', (data) => { io.to(String(data.classId)).emit('receive_reaction', data); });
-    socket.on('share_screen', (data) => { io.to(String(data.classId)).emit('screen_share_status', data); });
-    socket.on('request_screen_share', (data) => { io.to(String(data.classId)).emit('receive_screen_share_request', data); });
-    socket.on('approve_screen_share', (data) => { io.to(String(data.classId)).emit('screen_share_approved', data); });
-    socket.on('lower_all_hands', (classId) => { io.to(String(classId)).emit('all_hands_lowered'); });
+    socket.on('whiteboard_draw', (data) => {
+        const room = getRoomName(data.classId, socket.classType);
+        if (room) socket.to(room).emit('whiteboard_draw', data);
+    });
+    socket.on('whiteboard_clear', (data) => {
+        const room = getRoomName(data.classId, socket.classType);
+        if (room) socket.to(room).emit('whiteboard_clear');
+    });
+    socket.on('send_reaction', (data) => {
+        const room = getRoomName(data.classId, socket.classType);
+        if (room) io.to(room).emit('receive_reaction', data);
+    });
+    socket.on('share_screen', (data) => {
+        const room = getRoomName(data.classId, socket.classType);
+        if (room) io.to(room).emit('screen_share_status', data);
+    });
+    socket.on('request_screen_share', (data) => {
+        const room = getRoomName(data.classId, socket.classType);
+        if (room) io.to(room).emit('receive_screen_share_request', data);
+    });
+    socket.on('approve_screen_share', (data) => {
+        const room = getRoomName(data.classId, socket.classType);
+        if (room) io.to(room).emit('screen_share_approved', data);
+    });
+    socket.on('lower_all_hands', (classId) => {
+        const room = getRoomName(classId, socket.classType);
+        if (room) io.to(room).emit('all_hands_lowered');
+    });
     socket.on('violation_report', (data) => {
         console.warn(`[Security] Violation detected: User ${data.studentName} (${data.studentId}) in Class ${data.classId} - Type: ${data.type}`);
-        // Notify instructor (optional, but good for real-time monitoring)
-        socket.to(String(data.classId)).emit('student_violation', data);
+        const room = getRoomName(data.classId, socket.classType);
+        if (room) socket.to(room).emit('student_violation', data);
     });
 
     // --- Mute/Unmute Logic with Permission Tracking ---
     socket.on('admin_mute_student', (data) => {
-        // Mute specific student and revoke their unmute permission
-        io.to(String(data.classId)).emit('force_mute_student', { studentId: data.studentId });
+        const room = getRoomName(data.classId, socket.classType);
+        if (room) io.to(room).emit('force_mute_student', { studentId: data.studentId });
     });
 
     socket.on('admin_mute_all', (data) => {
-        // Mute all students and revoke all unmute permissions
-        io.to(String(data.classId)).emit('audio_status', { locked: true });
-        socket.to(String(data.classId)).emit('force_mute_all');
+        const room = getRoomName(data.classId, socket.classType);
+        if (!room) return;
+        io.to(room).emit('audio_status', { locked: true });
+        socket.to(room).emit('force_mute_all');
     });
 
     socket.on('admin_grant_unmute', (data) => {
-        // Grant unmute permission to a specific student
-        io.to(String(data.classId)).emit('grant_unmute_permission', { studentId: data.studentId });
+        const room = getRoomName(data.classId, socket.classType);
+        if (room) io.to(room).emit('grant_unmute_permission', { studentId: data.studentId });
     });
 
     socket.on('admin_request_unmute', (data) => {
-        // Send unmute request to student (they can choose to accept)
-        io.to(String(data.classId)).emit('request_unmute_student', { studentId: data.studentId });
+        const room = getRoomName(data.classId, socket.classType);
+        if (room) io.to(room).emit('request_unmute_student', { studentId: data.studentId });
     });
 
     socket.on('admin_unlock_all', (data) => {
-        // Unlock all mics - restore permission to everyone
-        io.to(String(data.classId)).emit('audio_status', { locked: false });
-        io.to(String(data.classId)).emit('unlock_all_mics');
+        const room = getRoomName(data.classId, socket.classType);
+        if (!room) return;
+        io.to(room).emit('audio_status', { locked: false });
+        io.to(room).emit('unlock_all_mics');
     });
 
-    socket.on('disconnect', async () => {
-        if (socket.userId && socket.classId) {
-            try {
-                const db = app.locals.db;
-                if (db) {
-                    await db.query('UPDATE live_class_attendance SET left_at = NOW() WHERE class_id = ? AND user_id = ? AND left_at IS NULL', [socket.classId, socket.userId]);
-                }
-                socket.to(String(socket.classId)).emit('user_left', { userId: socket.userId });
-            } catch (err) {
-                console.error("Attendance Exit Log Error:", err);
-            }
-        }
-        console.log('User disconnected:', socket.id);
-    });
 });
 
 startServer();

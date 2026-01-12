@@ -197,6 +197,10 @@ exports.getJoinToken = async (req, res) => {
         let role = 'subscriber';
 
         // 2. Authorization Check
+        if (liveClass.status === 'completed') {
+            return res.status(403).json({ message: 'This class has already ended.' });
+        }
+
         if (roleName === 'instructor' || roleName === 'super_instructor') {
             if (liveClass.instructor_id !== userId) {
                 return res.status(403).json({ message: 'Unauthorized: You are not the instructor of this class' });
@@ -299,8 +303,9 @@ exports.endClass = async (req, res) => {
 
         // Emit Socket Event for real-time updates
         if (req.app.locals.io) {
-            // Notify students in the room to redirect
-            req.app.locals.io.to(id).emit('class_ended', { classId: id });
+            // Notify students in the room to redirect (using standardized room name)
+            req.app.locals.io.to(`reg_class_${id}`).emit('class_ended', { classId: id });
+
             // Notify dashboards to refresh
             req.app.locals.io.emit('class_ended', { classId: id });
             req.app.locals.io.emit('global_sync', { type: 'classes', action: 'end', id });

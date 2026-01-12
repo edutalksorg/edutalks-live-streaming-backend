@@ -175,6 +175,10 @@ exports.getJoinToken = async (req, res) => {
         let role = 'subscriber';
 
         // Authorization Check
+        if (liveClass.status === 'completed') {
+            return res.status(403).json({ message: 'This class has already ended.' });
+        }
+
         if (roleName === 'super_instructor') {
             if (liveClass.super_instructor_id !== userId) {
                 return res.status(403).json({ message: 'Unauthorized: You are not the instructor of this class' });

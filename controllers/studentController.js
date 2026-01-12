@@ -399,7 +399,7 @@ const studentController = {
                                 file_path: sub.file_path
                             }))
                         };
-                    })
+                    }).filter(e => e.status !== 'Expired')
                 };
             });
 
