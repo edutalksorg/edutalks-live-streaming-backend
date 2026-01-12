@@ -193,7 +193,7 @@ io.on('connection', (socket) => {
                     userName: s.userName,
                     role: s.role
                 })).filter(u => u.userId);
-                socket.emit('current_users', members);
+                io.to(room).emit('current_users', members);
 
                 // Sync current states for the room to the new joiner
                 if (roomStates[room]) {
@@ -232,6 +232,17 @@ io.on('connection', (socket) => {
                 username: socket.userName,
                 role: socket.role
             });
+
+            // Refresh participant count for everyone remaining
+            if (room) {
+                const socketsInRoom = await io.in(room).fetchSockets();
+                const members = socketsInRoom.map(s => ({
+                    userId: s.userId,
+                    userName: s.userName,
+                    role: s.role
+                })).filter(u => u.userId);
+                io.to(room).emit('current_users', members);
+            }
 
             try {
                 const db = app.locals.db;

@@ -273,7 +273,7 @@ exports.startClass = async (req, res) => {
             `, [instructorId, liveClass[0].subject_id]);
 
             for (const student of students) {
-                emailService.sendClassStartedEmail(student.email, student.name, subjects[0]?.name || liveClass[0].title, instructors[0].name);
+                emailService.sendClassStartedEmail(student.email, student.name, subjects[0]?.name || liveClass[0].title, instructors[0].name, id);
             }
         }
 

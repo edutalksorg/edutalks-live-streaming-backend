@@ -28,7 +28,8 @@ const startReminderService = (db) => {
                     cls.instructor_name,
                     cls.subject_name || cls.title,
                     cls.start_time,
-                    'instructor'
+                    'instructor',
+                    cls.id
                 );
 
                 // 2. Fetch assigned students
@@ -47,7 +48,8 @@ const startReminderService = (db) => {
                         student.name,
                         cls.subject_name || cls.title,
                         cls.start_time,
-                        'student'
+                        'student',
+                        cls.id
                     );
                 }
 

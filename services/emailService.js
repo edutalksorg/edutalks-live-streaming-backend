@@ -113,29 +113,43 @@ exports.sendClassScheduledEmail = async (userEmail, name, subjectName, startTime
     await sendEmail(userEmail, subject, html);
 };
 
-exports.sendClassStartedEmail = async (userEmail, name, subjectName, instructorName) => {
+exports.sendClassStartedEmail = async (userEmail, name, subjectName, instructorName, classId) => {
     const subject = `CLASS STARTED: ${subjectName}`;
+    const joinUrl = classId ? `${process.env.FRONTEND_URL || 'http://localhost:5173'}/student/live/${classId}` : loginUrl;
+
     const html = `
         <h3>Hello ${name},</h3>
         <p>The live class for <b>${subjectName}</b> by ${instructorName} has just STARTED.</p>
         <p>Jump in now to participate!</p>
-        <p><a href="${loginUrl}">Join Class Now</a></p>
+        <p><a href="${joinUrl}" style="background-color: #EE1D23; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold;">Join Class Now</a></p>
+        <p style="margin-top: 10px; font-size: 12px;">Or copy this link: <a href="${joinUrl}">${joinUrl}</a></p>
         <br/>
         <p>Best Regards,<br/>EduTalks Team</p>
     `;
     await sendEmail(userEmail, subject, html);
 };
 
-exports.sendClassReminderEmail = async (userEmail, name, subjectName, startTime, role = 'student') => {
+exports.sendClassReminderEmail = async (userEmail, name, subjectName, startTime, role = 'student', classId) => {
     const formattedTime = new Date(startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const reminderTime = new Date(new Date(startTime).getTime() - 5 * 60 * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    let joinUrl = loginUrl;
+    if (classId) {
+        const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+        if (role === 'instructor') {
+            joinUrl = `${baseUrl}/instructor/live/${classId}`;
+        } else {
+            joinUrl = `${baseUrl}/student/live/${classId}`;
+        }
+    }
 
     const subject = `Reminder: ${subjectName} starts in 5 minutes!`;
     const html = `
         <h3>Hello ${name},</h3>
         <p>This is a reminder that the session <b>${subjectName}</b> is scheduled for <b>${formattedTime}</b>.</p>
         <p>Please <b>meet at ${reminderTime}</b> to prepare for the session.</p>
-        <p><a href="${loginUrl}">Login Now</a></p>
+        <p><a href="${joinUrl}" style="background-color: #EE1D23; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold;">Login & Join Now</a></p>
+        <p style="margin-top: 10px; font-size: 12px;">Or copy this link: <a href="${joinUrl}">${joinUrl}</a></p>
         <br/>
         <p>Best Regards,<br/>EduTalks Team</p>
     `;
