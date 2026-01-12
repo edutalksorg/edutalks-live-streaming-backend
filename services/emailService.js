@@ -9,7 +9,7 @@ const transporter = nodemailer.createTransport({
     }
 });
 
-const loginUrl = `${process.env.FRONTEND_URL}/login`;
+const loginUrl = `${process.env.FRONTEND_URL || 'https://www.eduwallah.work.gd'}/login`;
 
 const sendEmail = async (to, subject, html) => {
     try {
@@ -115,7 +115,7 @@ exports.sendClassScheduledEmail = async (userEmail, name, subjectName, startTime
 
 exports.sendClassStartedEmail = async (userEmail, name, subjectName, instructorName, classId) => {
     const subject = `CLASS STARTED: ${subjectName}`;
-    const joinUrl = classId ? `${process.env.FRONTEND_URL}/student/live/${classId}` : loginUrl;
+    const joinUrl = classId ? `${process.env.FRONTEND_URL || 'https://www.eduwallah.work.gd'}/student/live/${classId}` : loginUrl;
 
     const html = `
         <h3>Hello ${name},</h3>
@@ -135,7 +135,7 @@ exports.sendClassReminderEmail = async (userEmail, name, subjectName, startTime,
 
     let joinUrl = loginUrl;
     if (classId) {
-        const baseUrl = process.env.FRONTEND_URL;
+        const baseUrl = process.env.FRONTEND_URL || 'https://www.eduwallah.work.gd';
         if (role === 'instructor') {
             joinUrl = `${baseUrl}/instructor/live/${classId}`;
         } else {
@@ -157,7 +157,7 @@ exports.sendClassReminderEmail = async (userEmail, name, subjectName, startTime,
 };
 
 exports.sendPasswordResetEmail = async (userEmail, name, resetToken) => {
-    const resetUrl = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
+    const resetUrl = `${process.env.FRONTEND_URL || 'https://www.eduwallah.work.gd'}/reset-password/${resetToken}`;
     const subject = 'Password Reset Request - EduTalks';
     const html = `
         <h3>Hello ${name},</h3>

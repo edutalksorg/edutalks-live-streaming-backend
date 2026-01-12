@@ -40,12 +40,27 @@ const studentController = {
             }
 
             // 2. Get Stats (Strictly Batch-Specific and Expiry-Aware)
-            const [classesCount] = await db.query(`
+            // Regular Classes
+            const [regularClassesCount] = await db.query(`
                 SELECT COUNT(*) as count FROM live_classes lc 
                 JOIN batches b ON lc.instructor_id = b.instructor_id AND lc.subject_id = b.subject_id
                 JOIN student_batches sb ON b.id = sb.batch_id
                 WHERE sb.student_id = ? AND lc.status = "live"
             `, [studentId]);
+
+            // Super Instructor Classes (Based on Grade)
+            // Use filtered subject if available for UG/PG, otherwise just grade
+            let siQuery = `SELECT COUNT(*) as count FROM super_instructor_classes WHERE grade = ? AND status = 'live'`;
+            let siParams = [users[0].grade];
+
+            if (users[0].selected_subject_id) {
+                siQuery += ` AND (subject_id IS NULL OR subject_id = ?)`;
+                siParams.push(users[0].selected_subject_id);
+            }
+
+            const [siClassesCount] = await db.query(siQuery, siParams);
+
+            const classesCount = [{ count: regularClassesCount[0].count + siClassesCount[0].count }];
 
             const [examsCount] = await db.query(`
                 SELECT COUNT(*) as count FROM exams e 
